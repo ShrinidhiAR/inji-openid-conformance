@@ -1,0 +1,29 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testsuites tests="6" failures="2" skipped="1">
+  <testsuite name="inji-certify-conformance" tests="4" failures="1" errors="0" skipped="1" time="0">
+    <testcase classname="inji.certify.conformance" name="oid4vci-1_0-issuer-metadata-test" time="0">
+      <system-out>test_id=abc1 status=FINISHED result=PASSED</system-out>
+    </testcase>
+    <testcase classname="inji.certify.conformance" name="oid4vci-1_0-issuer-happy-flow" time="0">
+      <failure message="Conformance suite reported FAILED." type="ConformanceFailure">Conformance suite reported FAILED.</failure>
+      <system-out>test_id=abc2 status=FINISHED result=FAILED</system-out>
+    </testcase>
+    <testcase classname="inji.certify.conformance" name="oid4vci-1_0-issuer-ensure-dpop" time="0">
+      <system-out>test_id=abc3 status=FINISHED result=WARNING
+Conformance suite reported WARNING.</system-out>
+    </testcase>
+    <testcase classname="inji.certify.conformance" name="oid4vci-1_0-issuer-manual-step" time="0">
+      <skipped message="No final result (status=REVIEW, result=None); manual review may be needed." />
+      <system-out>test_id=abc4 status=REVIEW result=None</system-out>
+    </testcase>
+  </testsuite>
+  <testsuite name="inji-verify-conformance" tests="2" failures="1" errors="0" skipped="0" time="0">
+    <testcase classname="inji.verify.conformance" name="oid4vp-1final-verifier-happy-flow" time="0">
+      <system-out>test_id=def1 status=FINISHED result=PASSED</system-out>
+    </testcase>
+    <testcase classname="inji.verify.conformance" name="oid4vp-1final-verifier-invalid-request" time="0">
+      <failure message="Conformance suite reported FAILED." type="ConformanceFailure">Conformance suite reported FAILED.</failure>
+      <system-out>test_id=def2 status=FINISHED result=FAILED</system-out>
+    </testcase>
+  </testsuite>
+</testsuites>

@@ -1,0 +1,12 @@
+{
+  "certify": [
+    {"module": "oid4vci-1_0-issuer-metadata-test", "test_id": "abc1", "status": "FINISHED", "result": "PASSED"},
+    {"module": "oid4vci-1_0-issuer-happy-flow", "test_id": "abc2", "status": "FINISHED", "result": "FAILED"},
+    {"module": "oid4vci-1_0-issuer-ensure-dpop", "test_id": "abc3", "status": "FINISHED", "result": "WARNING"},
+    {"module": "oid4vci-1_0-issuer-manual-step", "test_id": "abc4", "status": "REVIEW", "result": null}
+  ],
+  "verify": [
+    {"module": "oid4vp-1final-verifier-happy-flow", "test_id": "def1", "status": "FINISHED", "result": "PASSED"},
+    {"module": "oid4vp-1final-verifier-invalid-request", "test_id": "def2", "status": "FINISHED", "result": "FAILED"}
+  ]
+}

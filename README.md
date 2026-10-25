@@ -13,10 +13,11 @@ Automated local execution and CI/CD pipeline integration for MOSIP Inji Certify 
 8. [Configuration](#configuration)
 9. [API reference (conformance suite endpoints used)](#api-reference-conformance-suite-endpoints-used)
 10. [Output format](#output-format)
-11. [Test cases](#test-cases)
-12. [Test data](#test-data)
-13. [Troubleshooting](#troubleshooting)
-14. [Known limitations](#known-limitations)
+11. [TestNG results bridge](#testng-results-bridge)
+12. [Test cases](#test-cases)
+13. [Test data](#test-data)
+14. [Troubleshooting](#troubleshooting)
+15. [Known limitations](#known-limitations)
 
 ## Overview
 
@@ -64,9 +65,11 @@ inji-openid-conformance/
 │       └── verify-verifier-config.json       # Test plan config for Inji Verify (verifier)
 ├── docs/
 │   ├── architecture.png                      # Architecture diagram
-│   └── architecture.pptx                     # Editable diagram source
+│   ├── architecture.pptx                     # Editable diagram source
+│   └── sample-output/                        # Illustrative bridge input/output
 ├── scripts/
-│   └── conformance_runner.py                 # REST API driver
+│   ├── conformance_runner.py                 # REST API driver
+│   └── testng_bridge.py                      # JSON results -> TestNG-style XML
 ├── .gitignore
 └── README.md
 ```
@@ -243,6 +246,40 @@ For the full API, see the OpenID Conformance Suite documentation.
 
 Only the components you ran appear. The values above are placeholders showing the structure, not real results. The file is git-ignored.
 
+## TestNG results bridge
+
+`scripts/testng_bridge.py` converts the runner's `conformance-results.json` into TestNG-style results XML, so the results can be read by tools that consume TestNG / JUnit-style reports (for example Jenkins or ExtentReports adapters).
+
+```powershell
+python scripts/conformance_runner.py --combined
+python scripts/testng_bridge.py
+```
+
+Options:
+
+| Option | Meaning | Default |
+|---|---|---|
+| `--input` | Runner output JSON | `conformance-results.json` |
+| `--output` | XML file to write | `testng-results.xml` |
+| `--format junit` | `<testsuites><testsuite><testcase>` layout (what TestNG writes for JUnit-compatible tools) | default |
+| `--format testng` | Native `<testng-results><suite><test><class><test-method>` layout | |
+| `--strict-warnings` | Treat `WARNING` results as failures | off |
+
+Mapping: one suite per component (`certify`, `verify`), class name `inji.<component>.conformance`, test name = suite module name.
+
+| Conformance result | Test outcome |
+|---|---|
+| `PASSED` | passed |
+| `WARNING` | passed, with a warning note (failed with `--strict-warnings`) |
+| `FAILED` | failed |
+| anything else (no result, `REVIEW`, ...) | skipped |
+
+The runner does not record durations, so all time values are `0`.
+
+`docs/sample-output/` holds an **illustrative** input and the XML the bridge produced from it. The module names and results in that sample are made up to show the mapping. They are not results of a real conformance run.
+
+Status: the bridge was run on that sample and its XML output parses correctly. It has not been checked against MOSIP's api-testrig itself. Full api-testrig integration (its report upload to a MinIO/S3 bucket and benchmark gating) is future work.
+
 ## Test cases
 
 These are procedures to follow and the outcome to expect. They describe what the harness should do; they are not recorded results.
@@ -290,5 +327,5 @@ All values are placeholders for local testing and are not real credentials:
 
 * The runner polls each test with no overall time limit. A module that waits for a manual step (for example a wallet action in the suite UI) will keep the runner waiting until the step is done in the UI at <http://localhost:8080>.
 * The compose file starts only the conformance suite and MongoDB. Inji Certify and Inji Verify must be started separately.
-* A Java/TestNG bridge is not part of this repository; `conformance-results.json` is the hand-off format for that kind of integration.
+* The TestNG bridge only converts results to XML. It is not wired into MOSIP's Java api-testrig (report upload to MinIO/S3, benchmark gating): that is future work.
 * The `latest` tag of the suite image is not pinned, so behavior can change when the image is updated.
