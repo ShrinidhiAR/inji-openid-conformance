@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+env/
+
+# Test Outputs
+conformance-results.json
+
+# Docker Data
+mongo_data/
