@@ -248,7 +248,7 @@ Only the components you ran appear. The values above are placeholders showing th
 
 ## TestNG results bridge
 
-`scripts/testng_bridge.py` converts the runner's `conformance-results.json` into TestNG-style results XML, so the results can be read by tools that consume TestNG / JUnit-style reports (for example Jenkins or ExtentReports adapters).
+`scripts/testng_bridge.py` converts the runner's `conformance-results.json` into TestNG-style results XML, so the results can be read by tools that consume TestNG / JUnit-style reports (for example Jenkins).
 
 ```powershell
 python scripts/conformance_runner.py --combined
@@ -278,7 +278,9 @@ The runner does not record durations, so all time values are `0`.
 
 `docs/sample-output/` holds an **illustrative** input and the XML the bridge produced from it. The module names and results in that sample are made up to show the mapping. They are not results of a real conformance run.
 
-Status: the bridge was run on that sample and its XML output parses correctly. It has not been checked against MOSIP's api-testrig itself. Full api-testrig integration (its report upload to a MinIO/S3 bucket and benchmark gating) is future work.
+Status: the bridge was run on that sample and its XML output parses correctly.
+
+How this relates to MOSIP's api-testrig (checked against the public source, not run): the Inji test rigs ([inji-certify/api-test](https://github.com/inji/inji-certify/tree/master/api-test), [inji-verify/api-test](https://github.com/inji/inji-verify/tree/master/api-test)) are Java REST Assured + TestNG projects. Their `InjiTestRunner` starts TestNG itself from suite files in `testNgXmlFiles/`, writes to `testng-report/`, and builds its HTML report in-process with a TestNG reporter (`EmailableReport` in [mosip-functional-tests/apitest-commons](https://github.com/mosip/mosip-functional-tests/tree/master/apitest-commons)). We found no code in the rig that imports an external results XML file. So this bridge's XML is a standard, tool-readable export of our results. It is not a drop-in input to the rig. Feeding conformance results into the rig itself would need Java-side work (for example a TestNG test class that runs or reads the conformance results), plus the rig's report upload (apitest-commons has an `S3Adapter`) and benchmark gating. That is future work.
 
 ## Test cases
 
@@ -327,5 +329,5 @@ All values are placeholders for local testing and are not real credentials:
 
 * The runner polls each test with no overall time limit. A module that waits for a manual step (for example a wallet action in the suite UI) will keep the runner waiting until the step is done in the UI at <http://localhost:8080>.
 * The compose file starts only the conformance suite and MongoDB. Inji Certify and Inji Verify must be started separately.
-* The TestNG bridge only converts results to XML. It is not wired into MOSIP's Java api-testrig (report upload to MinIO/S3, benchmark gating): that is future work.
+* The TestNG bridge only converts results to XML. It is not wired into MOSIP's Java api-testrig, which runs TestNG itself and does not read an external results file (see the TestNG results bridge section). Java-side integration, report upload to MinIO/S3 and benchmark gating are future work.
 * The `latest` tag of the suite image is not pinned, so behavior can change when the image is updated.
