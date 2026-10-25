@@ -30,6 +30,10 @@ Running the suite by hand through its web UI is slow and hard to repeat. This pr
 
 ## Architecture and flow
 
+![Architecture diagram](docs/architecture.png)
+
+The diagram is also available as an editable PowerPoint file: [`docs/architecture.pptx`](docs/architecture.pptx).
+
 ```text
  conformance_runner.py                 Conformance Suite (Docker)          System under test
  ---------------------                 --------------------------          -----------------
@@ -58,6 +62,9 @@ inji-openid-conformance/
 │   └── configs/
 │       ├── certify-issuer-config.json        # Test plan config for Inji Certify (issuer)
 │       └── verify-verifier-config.json       # Test plan config for Inji Verify (verifier)
+├── docs/
+│   ├── architecture.png                      # Architecture diagram
+│   └── architecture.pptx                     # Editable diagram source
 ├── scripts/
 │   └── conformance_runner.py                 # REST API driver
 ├── .gitignore
