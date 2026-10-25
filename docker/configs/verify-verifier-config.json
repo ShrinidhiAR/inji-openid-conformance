@@ -1,0 +1,6 @@
+{
+  "description": "Inji Verify OpenID4VP Automated Conformance Test Plan",
+  "verifier": {
+    "presentation_definition_uri": "http://verify.local:8082/presentation-definition"
+  }
+}

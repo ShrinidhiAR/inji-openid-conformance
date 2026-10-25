@@ -1,0 +1,10 @@
+{
+  "description": "Inji Certify OpenID4VCI Automated Conformance Test Plan",
+  "server": {
+    "discoveryUrl": "http://certify.local:8081/.well-known/openid-credential-issuer"
+  },
+  "client": {
+    "client_id": "conformance-test-client",
+    "client_secret": "test-secret"
+  }
+}
