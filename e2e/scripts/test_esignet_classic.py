@@ -89,6 +89,7 @@ class Stub(BaseHTTPRequestHandler):
             r = self._json()["request"]
             check(r["responseType"] == "code", "responseType")
             check(r["clientId"] == CLIENT_ID and r["redirectUri"] == REDIRECT, "ids")
+            check(isinstance(r.get("acrValues"), str), "acrValues must be a space-separated string")
             seen["details"] = r
             self._send({"response": {
                 "transactionId": "txn-1",

@@ -127,7 +127,7 @@ class EsignetClassic:
             "redirectUri": redirect_uri,
             "state": state,
             "nonce": nonce,
-            "acrValues": ["mosip:idp:acr:password"],
+            "acrValues": "mosip:idp:acr:password",  # space-separated String, not array (OAuthDetailRequest.acrValues)
         }), "oauth-details")
 
     def authenticate(self, transaction_id: str, individual_id: str,
