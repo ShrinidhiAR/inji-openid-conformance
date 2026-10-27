@@ -93,6 +93,16 @@ jobs:
           docker compose -f e2e/compose/esignet/docker-compose.yaml logs --tail=200
           exit 1
 
+      - name: Wait for mock-identity-system (it boots slower than eSignet)
+        run: |
+          for i in $(seq 1 90); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8082/v1/mock-identity-system/actuator/health || true)
+            if [ "$code" = "200" ]; then echo "mock-identity up after $((i*5))s"; exit 0; fi
+            sleep 5
+          done
+          echo "::warning::mock-identity actuator did not report UP; continuing with probes anyway"
+          docker compose -f e2e/compose/esignet/docker-compose.yaml logs --tail=100 mock-identity-system
+
       - name: Debug mock identity seed + kyc-auth directly
         run: |
           echo "== seeded identities =="
