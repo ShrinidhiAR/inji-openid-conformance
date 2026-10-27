@@ -104,13 +104,15 @@ def run_test_module(base_url, plan_id, test_module_name):
             status = status_data.get("status")
             result = status_data.get("result")
 
-            # Terminal condition: terminal STATUS only. The suite's official
-            # automation library (scripts/conformance.py in the conformance-suite
-            # repo) waits on status alone; a result value is only read once the
-            # module has reached a terminal status, so an intermediate value can
-            # never be mistaken for a final one. INTERRUPTED is terminal too: the
-            # outcome is recorded and the benchmark gate fails it.
-            if status in ["FINISHED", "REVIEW", "INTERRUPTED"]:
+            # Terminal condition: terminal STATUS only. Per the suite's
+            # TestModule.java, Status is the lifecycle (CONFIGURED/RUNNING/WAITING/
+            # INTERRUPTED/FINISHED) and Result is the verdict (PASSED/FAILED/
+            # WARNING/REVIEW/SKIPPED/UNKNOWN) - REVIEW is a result, not a status.
+            # The suite's own automation library waits on status alone, so a
+            # result value is only trusted once the status is terminal. INTERRUPTED
+            # ("stopped before completion") is terminal: the outcome is recorded
+            # and the benchmark gate fails it.
+            if status in ["FINISHED", "INTERRUPTED"]:
                 print(f"[RESULT] {test_module_name} -> Status: {status}, Result: {result}")
                 return {
                     "module": test_module_name,
@@ -127,7 +129,15 @@ def main():
     parser.add_argument("--combined", action="store_true", help="Run both certify and verify")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Base API URL")
     parser.add_argument("--output", default="conformance-results.json", help="Output JSON path")
+    parser.add_argument("--run-id", default=None, help="Run identifier stamped into the output (default: generated UUID)")
     args = parser.parse_args()
+
+    # Remove any previous output before starting: a crashed or interrupted run
+    # must leave no results file behind, so a later gate run can never pass on
+    # output from an earlier execution.
+    for stale in (args.output, args.output + ".tmp"):
+        if os.path.exists(stale):
+            os.remove(stale)
 
     # Block until the suite is reachable.
     wait_for_server(args.base_url)
@@ -155,7 +165,7 @@ def main():
     # cannot pass the benchmark.
     run_started_at = datetime.now(timezone.utc)
     all_results = {"run": {
-        "id": str(uuid.uuid4()),
+        "id": args.run_id or str(uuid.uuid4()),
         "started_at": run_started_at.isoformat(),
         "tool": "conformance_runner.py"
     }}

@@ -108,6 +108,16 @@ public class ConformanceResultsTest {
                     + "'. Nothing was executed, so the benchmark cannot be satisfied. "
                     + "Run scripts/conformance_runner.py first and point conformance.results at its output.");
         }
+        // Per the suite's TestModule.java, Status is the lifecycle and Result the
+        // verdict; a result is only meaningful once the status is FINISHED. A
+        // non-terminal or INTERRUPTED module fails the gate no matter what the
+        // result field says - even PASSED or WARNING.
+        if (!"FINISHED".equals(outcome.status)) {
+            Assert.fail("Module " + outcome.module + " never reached status FINISHED "
+                    + "(status=" + printable(outcome.status) + ", result=" + printable(outcome.result) + "). "
+                    + "Only a module that completed can satisfy the benchmark; INTERRUPTED and "
+                    + "non-terminal statuses fail it regardless of the recorded result.");
+        }
         switch (outcome.result) {
             case "PASSED" -> {
                 // pass
@@ -117,20 +127,19 @@ public class ConformanceResultsTest {
                         System.getProperty("benchmark.allowWarnings", "true"));
                 if (allowWarnings) {
                     Reporter.log("WARNING from the conformance suite for module " + outcome.module
-                            + " (status " + outcome.status + "). Counted as pass under the project policy "
+                            + ". Counted as pass under the project policy "
                             + "benchmark.allowWarnings=true; review this module manually.", true);
                 } else {
                     Assert.fail("Conformance suite reported WARNING for module " + outcome.module
                             + " and benchmark.allowWarnings=false, so this counts as a failure.");
                 }
             }
-            case "FAILED" -> Assert.fail("Conformance suite reported FAILED for module " + outcome.module
-                    + " (status " + outcome.status + ").");
-            default -> Assert.fail("Module " + outcome.module + " did not record a passing result "
-                    + "(status=" + printable(outcome.status) + ", result=" + printable(outcome.result) + "). "
-                    + "Only PASSED" + (Boolean.parseBoolean(System.getProperty("benchmark.allowWarnings", "true"))
+            default -> Assert.fail("Module " + outcome.module + " finished with result "
+                    + printable(outcome.result) + ". Only PASSED"
+                    + (Boolean.parseBoolean(System.getProperty("benchmark.allowWarnings", "true"))
                             ? " or WARNING" : "")
-                    + " can satisfy the benchmark; everything else fails it.");
+                    + " can satisfy the benchmark; FAILED, REVIEW (needs manual review), SKIPPED, "
+                    + "UNKNOWN and missing results all fail it.");
         }
     }
 

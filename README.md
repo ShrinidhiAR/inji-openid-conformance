@@ -52,7 +52,7 @@ Step by step:
 1. The runner waits until the suite's API answers.
 2. It reads the JSON config for the component (`docker/configs/...`) and creates a test plan, passing the plan name and variant selection as query parameters.
 3. The suite returns the list of test modules in that plan.
-4. For each module the runner starts it and polls its log every 3 seconds until its status is terminal (`FINISHED`, `REVIEW` or `INTERRUPTED`), then records the result.
+4. For each module the runner starts it and polls its log every 3 seconds until its status is terminal (`FINISHED` or `INTERRUPTED`), then records the result.
 5. All module outcomes are saved to one JSON file, grouped by component (`certify`, `verify`).
 
 ## Repository structure
@@ -161,6 +161,7 @@ python scripts/conformance_runner.py [--component {certify,verify}] [--combined]
 | `--combined` | Run both plans, certify first, then verify | off |
 | `--base-url` | Base URL of the suite REST API | `http://localhost:8080/api` |
 | `--output` | Where to write the JSON summary | `conformance-results.json` |
+| `--run-id` | Run identifier stamped into the output; pair with the bridge's `--expect-run-id` to bind the gate to this exact run | generated UUID |
 
 You must pass either `--component` or `--combined`; otherwise the script prints an error and exits with code 1.
 
@@ -235,10 +236,11 @@ Returns the state of a running or finished test. The runner reads two fields:
 * `result`: for example `PASSED`, `FAILED`, `WARNING`.
 
 The runner polls every 3 seconds and stops when `status` reaches a terminal value
-(`FINISHED`, `REVIEW` or `INTERRUPTED`). It deliberately does not stop on the
-`result` field: the suite's own automation library (`scripts/conformance.py` in
-the conformance-suite repository) waits on status alone, so a result value is only
-trusted once the module's status is terminal.
+(`FINISHED` or `INTERRUPTED`). It deliberately does not stop on the `result`
+field: per the suite's `TestModule.java`, Status is the lifecycle and Result is
+the verdict (`REVIEW` is a result, not a status), and the suite's own automation
+library (`scripts/conformance.py`) waits on status alone, so a result value is
+only trusted once the module's status is terminal.
 
 Example (shape only):
 
@@ -308,20 +310,25 @@ plus `gate-summary.json`).
 The problem statement requires benchmark gating but states no numeric benchmark,
 so the gate is a configurable project policy, fail-closed by default:
 
-* every executed module must pass. By default a module passes with result
-  `PASSED`, or with result `WARNING` while `benchmark.allowWarnings=true` (the
-  default), in which case it is flagged in the report for manual review; set
-  `-Dbenchmark.allowWarnings=false` to require a literal `PASSED`;
-* `FAILED`, `REVIEW`, `INTERRUPTED`, missing or unknown results, and an empty
-  result set, fail the gate. A missing results file also fails the gate;
-* freshness is enforced: the runner stamps every output with `run.id` and
-  `run.started_at` and writes the file atomically, and the bridge refuses any
-  results file without a timestamp, or older than `--max-result-age-minutes`
-  (default 60). A stale file from an older or interrupted run therefore fails the
-  gate;
+* a module must have reached status `FINISHED` to count at all: `INTERRUPTED`
+  or any non-terminal status fails the gate regardless of the recorded result,
+  even `PASSED`;
+* a finished module must pass. By default it passes with result `PASSED`, or with
+  result `WARNING` while `benchmark.allowWarnings=true` (the default), in which
+  case it is flagged in the report for manual review; set
+  `-Dbenchmark.allowWarnings=false` to require a literal `PASSED`. `FAILED`,
+  `REVIEW` (needs manual review), `SKIPPED`, `UNKNOWN` and missing results all
+  fail the gate, as do an empty result set and a missing results file;
+* freshness and run identity are enforced: the runner deletes any previous output
+  before starting (a crashed or interrupted run leaves no file), stamps every
+  output with `run.id` and `run.started_at` and writes the file atomically, and
+  the bridge refuses any results file without a timestamp, older than
+  `--max-result-age-minutes` (default 60), or - when `--expect-run-id` is given -
+  from any other run;
 * residual limit: the gate judges what is in the results file. It cannot verify
   that the conformance suite's plan itself contained every official module - only
-  that every module the suite returned was run and passed;
+  that every module the suite returned was run and passed. Someone hand-editing
+  results is outside what tooling can prevent;
 * `--min-pass-rate N` (0-100, default 100) overrides the pass-rate threshold.
 
 ### Two run modes (per the problem statement)

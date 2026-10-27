@@ -77,12 +77,14 @@ public final class ConformanceBridgeRunner {
         String results = null;
         double minPassRate = 100.0;
         long maxResultAgeMinutes = 60;
+        String expectRunId = null;
         for (int i = 0; i < args.length - 1; i++) {
             switch (args[i]) {
                 case "--component" -> component = args[++i];
                 case "--results" -> results = args[++i];
                 case "--min-pass-rate" -> minPassRate = Double.parseDouble(args[++i]);
                 case "--max-result-age-minutes" -> maxResultAgeMinutes = Long.parseLong(args[++i]);
+                case "--expect-run-id" -> expectRunId = args[++i];
                 default -> {
                 }
             }
@@ -98,6 +100,12 @@ public final class ConformanceBridgeRunner {
         // The runner stamps every output with run.id and run.started_at and writes the
         // file atomically; a file without a fresh timestamp is refused, so a stale file
         // left over from an older or interrupted run can never satisfy the benchmark.
+        if (!Files.exists(Path.of(results))) {
+            System.out.println("[GATE] FAIL - results file " + results + " does not exist. "
+                    + "Run scripts/conformance_runner.py first and gate on its fresh output.");
+            writeGateSummary(component, results, 0, new CountingListener(), 0.0, minPassRate, false);
+            System.exit(1);
+        }
         String runId = null;
         String runStartedAt = null;
         try {
@@ -110,6 +118,12 @@ public final class ConformanceBridgeRunner {
             }
         } catch (Exception e) {
             // leave runId/runStartedAt null; the freshness check below fails closed
+        }
+        if (expectRunId != null && !expectRunId.equals(runId)) {
+            System.out.println("[GATE] FAIL - results file " + results + " belongs to run id " + runId
+                    + ", not the expected run " + expectRunId + ". Refusing to gate on another run's output.");
+            writeGateSummary(component, results, 0, new CountingListener(), 0.0, minPassRate, false);
+            System.exit(1);
         }
         if (runStartedAt == null) {
             System.out.println("[GATE] FAIL - results file " + results + " has no run.started_at "
