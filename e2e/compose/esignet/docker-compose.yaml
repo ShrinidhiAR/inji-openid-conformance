@@ -4,7 +4,7 @@
 # consistent for every container on the network.
 # Upstream: https://github.com/mosip/esignet/tree/master/docker-compose
 services:
-  database:
+  esignet-db:
     image: 'postgres:bookworm'
     environment:
       - POSTGRES_USER=postgres
@@ -25,12 +25,12 @@ services:
     environment:
       - container_user=mosip
       - active_profile_env=default,local
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://database:5432/mosip_mockidentitysystem?currentSchema=mockidentitysystem
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://esignet-db:5432/mosip_mockidentitysystem?currentSchema=mockidentitysystem
       - SPRING_DATASOURCE_USERNAME=postgres
       - SPRING_DATASOURCE_PASSWORD=postgres
       - MOSIP_ESIGNET_HOST=esignet:8080
     depends_on:
-      database:
+      esignet-db:
         condition: service_healthy
     ports:
       - "8082:8082"   # host-side debug only; e2e traffic uses service name
@@ -43,7 +43,7 @@ services:
     environment:
       - container_user=mosip
       - PORT=8080
-      - DATABASE_HOST=database
+      - DATABASE_HOST=esignet-db
       - DATABASE_PORT=5432
       - DATABASE_USERNAME=postgres
       - DATABASE_PASSWORD=postgres
@@ -61,7 +61,7 @@ services:
       - MOSIP_ESIGNET_AUTHN_PROVIDER=mock
       - MOSIP_ESIGNET_MOCK_DOMAIN_URL=http://mock-identity-system:8082
     depends_on:
-      database:
+      esignet-db:
         condition: service_healthy
       mock-identity-system:
         condition: service_started

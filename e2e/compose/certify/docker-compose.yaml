@@ -4,7 +4,7 @@
 # the authorization server, shared e2e-net network.
 # Upstream: https://github.com/mosip/inji-certify/tree/master/docker-compose/docker-compose-injistack
 services:
-  database:
+  certify-db:
     image: 'postgres:15'
     environment:
       - POSTGRES_USER=postgres
@@ -30,14 +30,14 @@ services:
       - enable_certify_artifactory=false
       - download_hsm_client=false
       - mosip_certify_domain_url=http://certify:8090
-      - mosip.certify.database.hostname=database
+      - mosip.certify.database.hostname=certify-db
       - mosip.certify.database.port=5432
     volumes:
       - ./config/certify-default.properties:/home/mosip/config/certify-default.properties
       - ./config/certify-mock-mdl.properties:/home/mosip/config/certify-mock-mdl.properties
       - ./data/CERTIFY_PKCS12:/home/mosip/CERTIFY_PKCS12
     depends_on:
-      database:
+      certify-db:
         condition: service_healthy
     ports:
       - "8088:8090"   # host-side debug only; e2e traffic uses service name

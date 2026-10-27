@@ -37,7 +37,7 @@ jobs:
           curl -s -H "X-Forwarded-Proto: https" http://localhost:8080/api/plan | python3 -c "
           import json,sys
           plans=json.load(sys.stdin)
-          names=[p.get('planName') for p in plans]
+          names=[p.get('planName') if isinstance(p,dict) else p for p in plans]
           print('\n'.join(sorted(names)))
           for want in ['oid4vci-1_0-issuer-test-plan','oid4vp-1final-verifier-test-plan']:
               print(('FOUND  ' if want in names else 'MISSING') + ' ' + want)"
