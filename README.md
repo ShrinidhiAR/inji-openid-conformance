@@ -52,7 +52,7 @@ Step by step:
 1. The runner waits until the suite's API answers.
 2. It reads the JSON config for the component (`docker/configs/...`) and creates a test plan, passing the plan name and variant selection as query parameters.
 3. The suite returns the list of test modules in that plan.
-4. For each module the runner starts it and polls its log every 3 seconds until the status is `FINISHED` or `REVIEW`, or a result of `PASSED`, `FAILED` or `WARNING` is reported.
+4. For each module the runner starts it and polls its log every 3 seconds until its status is terminal (`FINISHED`, `REVIEW` or `INTERRUPTED`), then records the result.
 5. All module outcomes are saved to one JSON file, grouped by component (`certify`, `verify`).
 
 ## Repository structure
@@ -234,7 +234,11 @@ Returns the state of a running or finished test. The runner reads two fields:
 * `status`: for example `FINISHED`, `REVIEW`.
 * `result`: for example `PASSED`, `FAILED`, `WARNING`.
 
-The runner polls every 3 seconds and stops when `status` is `FINISHED` or `REVIEW`, or `result` is `PASSED`, `FAILED` or `WARNING`.
+The runner polls every 3 seconds and stops when `status` reaches a terminal value
+(`FINISHED`, `REVIEW` or `INTERRUPTED`). It deliberately does not stop on the
+`result` field: the suite's own automation library (`scripts/conformance.py` in
+the conformance-suite repository) waits on status alone, so a result value is only
+trusted once the module's status is terminal.
 
 Example (shape only):
 
@@ -247,10 +251,12 @@ For the full API, see the OpenID Conformance Suite documentation.
 
 ## Output format
 
-`conformance-results.json` maps each component to a list of module results:
+`conformance-results.json` maps each component to a list of module results, plus a
+`run` block identifying when the output was produced:
 
 ```json
 {
+  "run": { "id": "<uuid>", "started_at": "<UTC ISO-8601 timestamp>", "tool": "conformance_runner.py" },
   "certify": [
     { "module": "<test module name>", "test_id": "<id>", "status": "<status>", "result": "<result>" }
   ],
@@ -260,7 +266,12 @@ For the full API, see the OpenID Conformance Suite documentation.
 }
 ```
 
-Only the components you ran appear. The values above are placeholders showing the structure, not real results. The file is git-ignored.
+Only the components you ran appear. The values above are placeholders showing the
+structure, not real results. The file is written atomically (a crash can never
+leave a truncated file) and is git-ignored. The api-testrig bridge refuses to gate
+on a results file without a fresh `run.started_at` (default limit 60 minutes;
+`--max-result-age-minutes` overrides), so output from an older or interrupted run
+can never satisfy the benchmark.
 
 ## api-testrig integration (TestNG + MOSIP's report)
 
@@ -301,13 +312,16 @@ so the gate is a configurable project policy, fail-closed by default:
   `PASSED`, or with result `WARNING` while `benchmark.allowWarnings=true` (the
   default), in which case it is flagged in the report for manual review; set
   `-Dbenchmark.allowWarnings=false` to require a literal `PASSED`;
-* `FAILED`, `REVIEW`, missing or unknown results, and an empty result set, fail
-  the gate. A missing results file also fails the gate;
-* the gate judges only what is in the results file: the runner writes the file
-  once, after every module of the created plan has finished, so a partial run
-  leaves no file and fails closed. It cannot verify that the suite's plan itself
-  contained every official module, and a stale results file from an older run is
-  not detected;
+* `FAILED`, `REVIEW`, `INTERRUPTED`, missing or unknown results, and an empty
+  result set, fail the gate. A missing results file also fails the gate;
+* freshness is enforced: the runner stamps every output with `run.id` and
+  `run.started_at` and writes the file atomically, and the bridge refuses any
+  results file without a timestamp, or older than `--max-result-age-minutes`
+  (default 60). A stale file from an older or interrupted run therefore fails the
+  gate;
+* residual limit: the gate judges what is in the results file. It cannot verify
+  that the conformance suite's plan itself contained every official module - only
+  that every module the suite returned was run and passed;
 * `--min-pass-rate N` (0-100, default 100) overrides the pass-rate threshold.
 
 ### Two run modes (per the problem statement)

@@ -46,30 +46,40 @@ jobs:
 
       - name: Benchmark gate passes on an all-pass fixture
         run: |
-          cat > /tmp/all-pass.json <<'JSON'
-          {
-            "certify": [
-              {"module": "fixture-certify-module-a", "test_id": "f1", "status": "FINISHED", "result": "PASSED"},
-              {"module": "fixture-certify-module-b", "test_id": "f2", "status": "FINISHED", "result": "PASSED"}
-            ],
-            "verify": [
-              {"module": "fixture-verify-module-a", "test_id": "f3", "status": "FINISHED", "result": "PASSED"}
-            ]
+          python3 - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          doc = {
+              "run": {"id": "ci-fixture-pass", "started_at": datetime.now(timezone.utc).isoformat(),
+                      "tool": "conformance_runner.py"},
+              "certify": [
+                  {"module": "fixture-certify-module-a", "test_id": "f1", "status": "FINISHED", "result": "PASSED"},
+                  {"module": "fixture-certify-module-b", "test_id": "f2", "status": "FINISHED", "result": "PASSED"}
+              ],
+              "verify": [
+                  {"module": "fixture-verify-module-a", "test_id": "f3", "status": "FINISHED", "result": "PASSED"}
+              ]
           }
-          JSON
+          json.dump(doc, open("/tmp/all-pass.json", "w"))
+          PY
           mvn -B -f apitestrig-bridge/pom.xml compile exec:java \
             -Dexec.args="--component combined --results /tmp/all-pass.json"
 
       - name: Benchmark gate fails the build on a failing fixture
         run: |
-          cat > /tmp/with-failure.json <<'JSON'
-          {
-            "certify": [
-              {"module": "fixture-certify-module-a", "test_id": "f1", "status": "FINISHED", "result": "PASSED"},
-              {"module": "fixture-certify-module-b", "test_id": "f2", "status": "FINISHED", "result": "FAILED"}
-            ]
+          python3 - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          doc = {
+              "run": {"id": "ci-fixture-fail", "started_at": datetime.now(timezone.utc).isoformat(),
+                      "tool": "conformance_runner.py"},
+              "certify": [
+                  {"module": "fixture-certify-module-a", "test_id": "f1", "status": "FINISHED", "result": "PASSED"},
+                  {"module": "fixture-certify-module-b", "test_id": "f2", "status": "FINISHED", "result": "FAILED"}
+              ]
           }
-          JSON
+          json.dump(doc, open("/tmp/with-failure.json", "w"))
+          PY
           if mvn -B -f apitestrig-bridge/pom.xml compile exec:java \
               -Dexec.args="--component certify --results /tmp/with-failure.json"; then
             echo "::error::Gate passed on failing data - the gate is broken."
@@ -79,13 +89,42 @@ jobs:
 
       - name: Benchmark gate fails the build on an empty result set
         run: |
-          echo '{ "certify": [], "verify": [] }' > /tmp/empty.json
+          python3 - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          doc = {"run": {"id": "ci-fixture-empty", "started_at": datetime.now(timezone.utc).isoformat(),
+                         "tool": "conformance_runner.py"},
+                 "certify": [], "verify": []}
+          json.dump(doc, open("/tmp/empty.json", "w"))
+          PY
           if mvn -B -f apitestrig-bridge/pom.xml compile exec:java \
               -Dexec.args="--component combined --results /tmp/empty.json"; then
             echo "::error::Gate passed on empty results - the gate is broken."
             exit 1
           fi
           echo "Gate failed the build as designed (empty results never pass)."
+
+      - name: Benchmark gate fails the build on a stale fixture
+        run: |
+          python3 - <<'PY'
+          import json
+          from datetime import datetime, timedelta, timezone
+          doc = {
+              "run": {"id": "ci-fixture-stale",
+                      "started_at": (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat(),
+                      "tool": "conformance_runner.py"},
+              "certify": [
+                  {"module": "fixture-certify-module-a", "test_id": "f1", "status": "FINISHED", "result": "PASSED"}
+              ]
+          }
+          json.dump(doc, open("/tmp/stale.json", "w"))
+          PY
+          if mvn -B -f apitestrig-bridge/pom.xml compile exec:java \
+              -Dexec.args="--component certify --results /tmp/stale.json"; then
+            echo "::error::Gate passed on a stale results file - freshness check is broken."
+            exit 1
+          fi
+          echo "Gate failed the build as designed (stale results never pass)."
 
       - name: Upload fixture reports
         if: always()
@@ -148,6 +187,10 @@ jobs:
           PY
 
       - name: Run the conformance harness
+        # The gate step below runs only if this step exits 0 (default GitHub Actions
+        # behavior), so the bridge can never gate on output from an earlier, failed
+        # or interrupted run. Each workflow run starts from a clean workspace, and
+        # the bridge additionally refuses results older than 60 minutes.
         run: python scripts/conformance_runner.py --combined
 
       - name: Gate the build through the api-testrig bridge
