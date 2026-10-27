@@ -1,20 +1,27 @@
 import json,time,urllib.request,urllib.error,subprocess,pathlib,sys
+from safe_http_evidence import summarize,Recorder
 from validate_readiness import body,health,metadata,nonce,BASE,CONFIG
 OUT=pathlib.Path('smoke-out');OUT.mkdir(exist_ok=True)
+EVIDENCE=Recorder(OUT/'http-evidence.jsonl')
 def request(path,method='GET',data=None):
     b=None if data is None else json.dumps(data).encode()
     req=urllib.request.Request(BASE+path,data=b,method=method,headers={'Content-Type':'application/json'})
     try:
         with urllib.request.urlopen(req,timeout=8) as r: code,h,raw=r.status,dict(r.headers),r.read()
     except urllib.error.HTTPError as r: code,h,raw=r.code,dict(r.headers),r.read()
+    except (urllib.error.URLError,TimeoutError,OSError) as e:
+        EVIDENCE.record({'route':path,'http':None,'transport_error':type(e).__name__})
+        raise ValueError('transport unavailable: '+type(e).__name__) from None
+    EVIDENCE.record(summarize(path,code,h,raw))
     try:m=json.loads(raw)
     except (ValueError,UnicodeDecodeError):raise ValueError(f'{path}: non-JSON HTTP {code}')
     return code,h,m
 
 def main():
     last='no response'
-    for i in range(60):
-        for p in ['/actuator/health','/v1/certify/actuator/health']:
+    # Bounded 120s; emit each changed response class immediately.
+    for i in range(24):
+        for p in ['/v1/certify/actuator/health','/actuator/health']:
             try:
                 c,h,m=request(p);health(c,m);healthpath=p;break
             except Exception as e:last=type(e).__name__+': '+str(e)
