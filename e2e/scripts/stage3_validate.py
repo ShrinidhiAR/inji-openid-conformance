@@ -82,13 +82,25 @@ if nonce.status_code == 401:
         n = int.from_bytes(base64.urlsafe_b64decode(key["n"] + "=="), "big")
         e = int.from_bytes(base64.urlsafe_b64decode(key["e"] + "=="), "big")
         pub = rsa.RSAPublicNumbers(e, n).public_key()
-        pad = padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH) \
-            if hdr["alg"] == "PS256" else padding.PKCS1v15()
-        try:
-            pub.verify(base64.urlsafe_b64decode(sig + "=="), (h + "." + p).encode(), pad, hashes.SHA256())
-            print("== local signature check: VALID (kid", hdr["kid"][:8], ")")
-        except Exception as ex:
-            print("== local signature check: INVALID:", type(ex).__name__)
+        sig_bytes = base64.urlsafe_b64decode(sig + "==")
+        msg = (h + "." + p).encode()
+        candidates = []
+        if hdr["alg"] == "PS256":
+            candidates = [("AUTO", getattr(padding.PSS, "AUTO", None)),
+                          ("len32", 32), ("len0", 0), ("MAX", padding.PSS.MAX_LENGTH)]
+            candidates = [(n, padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=v))
+                          for n, v in candidates if v is not None]
+        else:
+            candidates = [("pkcs1", padding.PKCS1v15())]
+        ok = None
+        for name, pad in candidates:
+            try:
+                pub.verify(sig_bytes, msg, pad, hashes.SHA256())
+                ok = name; break
+            except Exception:
+                continue
+        print("== local signature check:", ("VALID (salt=" + ok + ")" if ok else "INVALID for all paddings"),
+              "(kid", hdr["kid"][:8] + ")")
     except Exception as ex:
         print("== local signature check: error:", ex)
     # 2. can a container on e2e-net (like certify-app) reach the jwks url?
@@ -100,6 +112,7 @@ if nonce.status_code == 401:
     print("== container-network jwks probe:", r.stdout.strip(), r.stderr.strip()[:120])
 
 print("nonce:", nonce.status_code, nonce.text[:200])
+print("nonce WWW-Authenticate:", nonce.headers.get("WWW-Authenticate"))
 if nonce.status_code == 401:
     # isolate the nginx gateway: same call straight to certify-app (debug port)
     d = requests.get("http://localhost:8099/v1/certify/nonce",
