@@ -1,6 +1,9 @@
 import json,pathlib,subprocess,re
+from safe_exception_causes import project
 out=pathlib.Path('smoke-out');out.mkdir(exist_ok=True)
-p=subprocess.run(['docker','compose','-f','smoke/alpha-init/compose.yaml','logs','--no-color','--tail','160','certify-app','initialize','certify-db'],capture_output=True,text=True)
+p=subprocess.run(['docker','compose','-f','smoke/alpha-init/compose.yaml','logs','--no-color','certify-app','initialize','certify-db'],capture_output=True,text=True)
+# Read complete container logs internally, project causes before truncation.
+(out/'exception-causes.json').write_text(json.dumps(project(p.stdout),indent=2))
 summaries=[]
 for line in p.stdout.splitlines():
  if '{"@timestamp"' in line:

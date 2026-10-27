@@ -1,3 +1,5 @@
+import datetime
+from safe_exception_causes import project
 import json,time,urllib.request,urllib.error,subprocess,pathlib,sys
 from safe_http_evidence import summarize,Recorder
 from validate_readiness import body,health,metadata,nonce,BASE,CONFIG
@@ -23,7 +25,20 @@ def main():
     for i in range(24):
         for p in ['/v1/certify/actuator/health','/actuator/health']:
             try:
-                c,h,m=request(p);health(c,m);healthpath=p;break
+                window=datetime.datetime.now(datetime.timezone.utc).isoformat()
+                c,h,m=request(p)
+                if p=='/v1/certify/actuator/health' and isinstance(m,dict) and m.get('errors'):
+                    time.sleep(1)
+                    rawlogs=subprocess.check_output(['docker','compose','-f','smoke/alpha-init/compose.yaml','logs','--no-color','--since',window,'certify-app'],text=True)
+                    causes=project(rawlogs)
+                    # This isolated request window has no config/issuance probes.
+                    # Window association is evidence, not a cross-thread request ID.
+                    (OUT/'health-request-causes.json').write_text(json.dumps({'scope':'isolated primary health request window','route':p,'http':c,'correlation':'container log timestamps since immediately before health GET; no other application probes','causes':causes},indent=2))
+                    if causes:
+                        print('HEALTH_REQUEST_EXCEPTION_CLASSES '+json.dumps([x['exception_classes'] for x in causes]),flush=True)
+                        raise RuntimeError('captured primary health error with window-correlated exception; stopped early')
+                health(c,m);healthpath=p;break
+            except RuntimeError: raise
             except Exception as e:last=type(e).__name__+': '+str(e)
         else:time.sleep(5);continue
         break
