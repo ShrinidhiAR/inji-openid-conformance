@@ -220,10 +220,12 @@ class Esignet:
 
     def exchange_code(self, code: str, client_id: str, private_pem: str, redirect_uri: str) -> dict:
         token_url = f"{self.base}/oauth2/token"
-        # private_key_jwt audience per docs/relying-party-integration.md: the token
-        # endpoint URL as the server knows itself (MOSIP_ESIGNET_HOST), not the
-        # localhost debug port this client actually dialed.
-        aud = "http://esignet:8080/oauth2/token"
+        # private_key_jwt audience, confirmed by the stage2 probe matrix against the
+        # real 2.0.0 image: the ISSUER URL (http://esignet:8080), not the token
+        # endpoint path. kid must be present in the assertion header (registered
+        # jwk carries kid=e2e-key-1). Token-URL aud and kid-less assertions both
+        # get 401 invalid_client; issuer aud + kid returns 200.
+        aud = "http://esignet:8080"
         r = self.s.post(token_url, data={
             "grant_type": "authorization_code",
             "code": code,
