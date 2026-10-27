@@ -30,6 +30,13 @@ services:
       # runs this is the host-reachable address; the e2e stack overrides it.
       - BASE_URL=http://localhost:8080
       - JAVA_EXTRA_ARGS=-Dfintechlabs.devmode=true
+      # The image entrypoint always passes these to the JVM; unset/empty values
+      # make Spring's OAuth2 client beans fail and the context never starts.
+      # Dummy values are fine: suite UI login is not used in CI/e2e (devmode).
+      - OIDC_GOOGLE_CLIENTID=dummy-client-id
+      - OIDC_GOOGLE_SECRET=dummy-secret
+      - OIDC_GITLAB_CLIENTID=dummy-client-id
+      - OIDC_GITLAB_SECRET=dummy-secret
     depends_on:
       - mongodb
     restart: unless-stopped

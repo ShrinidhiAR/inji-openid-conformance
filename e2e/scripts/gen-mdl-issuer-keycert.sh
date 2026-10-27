@@ -11,8 +11,20 @@ openssl pkcs8 -topk8 -nocrypt -in "$TMP/key.pem" -outform DER -out "$TMP/key.der
 openssl req -new -x509 -key "$TMP/key.pem" -outform DER -out "$TMP/cert.der" \
   -days 365 -subj "/CN=e2e-mDL-issuer"
 VALUE="$(base64 -w0 "$TMP/key.der")||$(base64 -w0 "$TMP/cert.der")"
-sed -i "s|^mosip.certify.mock.mdoc.issuer-key-cert=.*|mosip.certify.mock.mdoc.issuer-key-cert=${VALUE}|" \
-  config/certify-mock-mdl.properties
+# base64 can contain '/' and the value contains '||' itself; python avoids sed
+# delimiter collisions entirely.
+python3 - "$VALUE" <<'PYEOF'
+import sys
+value = sys.argv[1]
+path = "config/certify-mock-mdl.properties"
+lines = open(path).read().splitlines(True)
+with open(path, "w") as f:
+    for line in lines:
+        if line.startswith("mosip.certify.mock.mdoc.issuer-key-cert="):
+            f.write(f"mosip.certify.mock.mdoc.issuer-key-cert={value}\n")
+        else:
+            f.write(line)
+PYEOF
 # export the PEM for the suite's mdoc trust-anchor config
 openssl x509 -in "$TMP/cert.der" -inform DER -out config/mdl-issuer-trust-anchor.pem
 rm -rf "$TMP"

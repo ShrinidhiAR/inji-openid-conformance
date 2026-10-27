@@ -119,58 +119,73 @@ class Esignet:
         print(f"[esignet] flow/execute {json.dumps(body)[:160]} -> {json.dumps(out)[:400]}")
         return out
 
+    @staticmethod
+    def _norm(s: str) -> str:
+        return "".join(c for c in s.lower() if c.isalnum())
+
     def drive_flow(self, execution_id: str, individual_id: str,
                    pin: str = "545411", otp: str = "111111",
-                   captcha_token: str = "test-captcha-token", max_steps: int = 12) -> str:
-        """Walk /flow/execute steps until COMPLETE; return the signed assertion."""
-        resp = self.flow_execute({"executionId": execution_id})
+                   captcha_token: str = "10000000-aaaa-bbbb-cccc-000000000001",
+                   max_steps: int = 15) -> str:
+        """Walk /flow/execute steps until COMPLETE; return the signed assertion.
+
+        Mirrors mosip/esignet api-test internal/esignet/driver.go: actions come
+        from data.actions[].ref, inputs from data.inputs[].identifier, the
+        challengeToken is threaded through, and every step re-sends ALL inputs
+        accumulated so far (browser behavior).
+        """
+        answers = {
+            "username": individual_id, "individualid": individual_id,
+            "uin": individual_id, "vid": individual_id,
+            "password": pin, "pin": pin,
+            "otp": otp, "otps": otp,
+            "captcha": captcha_token, "captchatoken": captcha_token,
+        }
+        nav_hints = ("back", "cancel", "resend", "retry", "skip")
+        payload = {"executionId": execution_id}
+        carried = {}
+        challenge = None
         for _ in range(max_steps):
+            resp = self.flow_execute(payload)
             status = (resp.get("flowStatus") or "").upper()
+            if resp.get("challengeToken"):
+                challenge = resp["challengeToken"]
             if status == "COMPLETE":
-                assertion = resp.get("assertion") or json.dumps(resp.get("data", {}))
-                if isinstance(assertion, str) and assertion.count(".") == 2:
+                assertion = resp.get("assertion")
+                if assertion:
                     return assertion
-                # some versions nest it
-                return (resp.get("data") or {}).get("assertion") or assertion
-            if status == "ERROR":
-                raise RuntimeError(f"flow entered ERROR: {json.dumps(resp)[:600]}")
+                raise RuntimeError(f"COMPLETE without assertion: {json.dumps(resp)[:500]}")
+            if status and status != "INCOMPLETE":
+                raise RuntimeError(f"flow terminated: {json.dumps(resp)[:600]}")
+            if resp.get("error") and isinstance(resp["error"], dict) and resp["error"].get("code"):
+                raise RuntimeError(f"flow step rejected: {json.dumps(resp['error'])[:400]}")
 
-            challenge = resp.get("challengeToken")
-            step = resp.get("step") or {}
-            actions = step.get("actions") or []
-            action_ids = [a.get("id", "") for a in actions] or [step.get("action", "")]
-            inputs_meta = {i.get("id"): i for i in (step.get("inputs") or [])}
-            print(f"[esignet] step actions={action_ids} inputs={list(inputs_meta)}")
+            data = resp.get("data") or {}
+            actions = [a["ref"] for a in (data.get("actions") or []) if a.get("ref")]
+            inputs = [i["identifier"] for i in (data.get("inputs") or []) if i.get("identifier")]
+            candidates = [a for a in actions if not any(h in a.lower() for h in nav_hints)]
+            if not candidates:
+                raise RuntimeError(f"only nav actions available: {actions}")
+            # prefer a deterministic credential path when offered a choice
+            action = next((a for a in candidates if "password" in a.lower()
+                           or "kbi" in a.lower()), candidates[0])
+            print(f"[esignet] actions={actions} inputs={inputs} -> action={action}")
 
-            aid = action_ids[0] if action_ids else ""
-            low = aid.lower()
-            if "acr" in low:
-                # choose the first offered authentication method
-                choice = (step.get("options") or [{}])[0].get("id") or aid
-                resp = self.flow_execute({"executionId": execution_id,
-                                          "challengeToken": challenge, "action": aid,
-                                          "inputs": {"acr": choice}})
-            elif "uin" in low or "username" in low or "individual" in low or "login" in low:
-                resp = self.flow_execute({"executionId": execution_id,
-                                          "challengeToken": challenge, "action": aid,
-                                          "inputs": {"username": individual_id,
-                                                     "captcha_token": captcha_token}})
-            elif "otp" in low:
-                key = "otp" if "otp" in inputs_meta or not inputs_meta else list(inputs_meta)[0]
-                resp = self.flow_execute({"executionId": execution_id,
-                                          "challengeToken": challenge, "action": aid,
-                                          "inputs": {key: otp}})
-            elif "pin" in low or "password" in low or "knowledge" in low:
-                key = "password" if "password" in inputs_meta else (list(inputs_meta)[0] if inputs_meta else "password")
-                resp = self.flow_execute({"executionId": execution_id,
-                                          "challengeToken": challenge, "action": aid,
-                                          "inputs": {key: pin}})
-            elif "consent" in low or "agree" in low or "confirm" in low:
-                resp = self.flow_execute({"executionId": execution_id,
-                                          "challengeToken": challenge, "action": aid,
-                                          "inputs": {}})
-            else:
-                raise RuntimeError(f"unknown flow step actions={action_ids} step={json.dumps(step)[:600]}")
+            for ident in inputs:
+                v = answers.get(self._norm(ident))
+                if v is None:
+                    if "consent" in self._norm(ident):
+                        v = json.dumps({"essential": True})
+                    else:
+                        raise RuntimeError(f"no answer for input '{identifier_hint}'" if False else f"no answer for input '{ident}' (inputs={inputs})")
+                carried[ident] = v
+
+            payload = {"executionId": execution_id}
+            if challenge:
+                payload["challengeToken"] = challenge
+            payload["action"] = action
+            if carried:
+                payload["inputs"] = dict(carried)
         raise RuntimeError("flow did not reach COMPLETE within step budget")
 
     def auth_callback(self, auth_id: str, assertion: str) -> str:
