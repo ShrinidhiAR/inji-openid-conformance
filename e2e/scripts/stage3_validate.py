@@ -44,6 +44,18 @@ print(f"== code == {code[:12]}...")
 tokens = es.exchange_code(code, CLIENT_ID, private_pem, REDIRECT_URI)
 access = tokens["access_token"]
 print("== access token obtained ==")
+# debug the certify /nonce 401: print JWT header+claims (never the signature),
+# plus current time, to compare against certify's decoder expectations.
+import base64 as _b64, json as _json
+_parts = access.split(".")
+if len(_parts) == 3:
+    _h = _json.loads(_b64.urlsafe_b64decode(_parts[0] + "==" ))
+    _p = _json.loads(_b64.urlsafe_b64decode(_parts[1] + "==" ))
+    print("== access token header:", _h)
+    print("== access token claims:", _p)
+    print("== now:", int(time.time()))
+else:
+    print("== access token is NOT a JWT (opaque), parts:", len(_parts))
 
 # debug: which jwks endpoint does this eSignet advertise, and does it serve?
 oc = requests.get(f"{ESIGNET}/.well-known/openid-configuration", timeout=30).json()
