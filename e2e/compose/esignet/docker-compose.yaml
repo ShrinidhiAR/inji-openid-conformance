@@ -37,6 +37,23 @@ services:
     networks:
       - e2e-net
 
+  # esignet fetches the mock ID system signing certs (keys.json) once at startup
+  # and fails closed (FET-1005) if mock-identity-system is not listening yet.
+  # This gate container blocks esignet startup until the mock is actually serving.
+  mock-ready:
+    image: curlimages/curl:8.10.1
+    command: >
+      sh -c "for i in $$(seq 1 90); do
+        code=$$(curl -s -o /dev/null -w '%{http_code}' http://mock-identity-system:8082/v1/mock-identity-system/actuator/health || true);
+        if [ \"$$code\" = \"200\" ]; then echo mock-identity ready; exit 0; fi;
+        sleep 5;
+      done; echo mock-identity did not become ready; exit 1"
+    depends_on:
+      mock-ready:
+        condition: service_completed_successfully
+    networks:
+      - e2e-net
+
   esignet:
     image: 'mosipid/esignet:2.0.0'
     user: root
@@ -63,8 +80,8 @@ services:
     depends_on:
       esignet-db:
         condition: service_healthy
-      mock-identity-system:
-        condition: service_started
+      mock-ready:
+        condition: service_completed_successfully
     ports:
       - "8090:8080"   # host-side debug only; e2e traffic uses service name
     networks:
