@@ -372,9 +372,25 @@ jobs:
                 - mosip_certify_domain_url=http://localhost:8099
                 - mosip.certify.database.hostname=certify-db
                 - mosip.certify.database.port=5432
-                # official inji-verify fixture keystore (public sample, see header)
+                # --- embedded verify-service 0.18.2 required placeholders ---
+                # certify's fat jar does not load verify-service's own
+                # application.properties, so every verify @Value without a
+                # code-level default must be set explicitly (9 total; first
+                # smoke failed on inji.vp-request.long-polling-timeout).
+                # Values: inji-verify's official defaults; URLs are LOCAL
+                # self-contained (no production MOSIP endpoints). The keystore
+                # is inji-verify's PUBLIC SAMPLE fixture (Ed25519, shipped in
+                # verify-service-0.18.2.jar) - boot-satisfying only, NOT a
+                # trusted VP identity; no VP flow is exercised in this smoke.
                 - inji.keystore.file.path=classpath:sample-keystore/test.p12
                 - INJI_KEYSTORE_FILE_PASS=mosip
+                - inji.vp-request.long-polling-timeout=55000
+                - inji.vp-submission.base-url=http://localhost:8099/v1/verify
+                - inji.did.verify.uri=did:web:localhost:8099:v1:verify
+                - inji.did.verify.public.key.uri=did:web:localhost:8099:v1:verify#key-0
+                - inji.verify.cookie-path=/v1/verify
+                - inji.verify.cookie-same-site=Lax
+                - inji.verify.claims-with-meta-data=_sd,_sd_alg,iss,cnf,sub,aud,exp,nbf,iat,cti
               volumes:
                 - ../e2e/compose/certify/config/certify-default.properties:/home/mosip/config/certify-default.properties
                 - ../e2e/compose/certify/config/certify-mock-mdl.properties:/home/mosip/config/certify-mock-mdl.properties
