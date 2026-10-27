@@ -45,6 +45,14 @@ tokens = es.exchange_code(code, CLIENT_ID, private_pem, REDIRECT_URI)
 access = tokens["access_token"]
 print("== access token obtained ==")
 
+# debug: which jwks endpoint does this eSignet advertise, and does it serve?
+oc = requests.get(f"{ESIGNET}/.well-known/openid-configuration", timeout=30).json()
+jwks_uri = oc.get("jwks_uri")
+print("== esignet jwks_uri:", jwks_uri)
+if jwks_uri:
+    probe = requests.get(jwks_uri.replace("http://esignet:8080", ESIGNET), timeout=30)
+    print("== jwks probe:", probe.status_code, probe.text[:150])
+
 # wallet proof key + c_nonce
 nonce = requests.get(f"{CERTIFY}/v1/certify/nonce",
                      headers={"Authorization": f"Bearer {access}"}, timeout=30)
@@ -63,7 +71,9 @@ cred_req = {
     "doctype": "org.iso.18013.5.1.mDL",
     "proof": {"proof_type": "jwt", "jwt": proof},
 }
-r = requests.post(md["credential_endpoint"], json=cred_req,
+# metadata URLs are container-addressed (http://certify:8090); rewrite for host-side use
+cred_endpoint = md["credential_endpoint"].replace("http://certify:8090", CERTIFY)
+r = requests.post(cred_endpoint, json=cred_req,
                   headers={"Authorization": f"Bearer {access}"}, timeout=60)
 print("credential:", r.status_code, r.text[:400])
 r.raise_for_status()
