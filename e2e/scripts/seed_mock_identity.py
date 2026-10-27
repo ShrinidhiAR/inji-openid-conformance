@@ -16,9 +16,14 @@ INDIVIDUAL = "1774231323"
 PASSWORD = "Mosip@123"
 
 r = requests.get(f"{MOCK}/identity/{INDIVIDUAL}", timeout=15)
-if r.status_code == 200:
+# The mock returns HTTP 200 with an error envelope for a MISSING individual
+# ({"response": null, "errors": [{"errorCode": "invalid_individual_id"}]}) -
+# status code alone is not proof of presence (observed in run 40522449921,
+# where seeding was wrongly skipped and kyc-auth then failed).
+if r.status_code == 200 and (r.json().get("response") or {}).get("individualId"):
     print(f"[seed] individual {INDIVIDUAL} already present")
     sys.exit(0)
+print(f"[seed] GET /identity -> {r.status_code}: {r.text[:200]} (not present, seeding)")
 
 body = {
     "requestTime": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),

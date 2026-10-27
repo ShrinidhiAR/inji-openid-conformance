@@ -15,7 +15,9 @@ controllers/OAuthController.java, dto/AuthRequest|AuthCodeRequest|
 OAuthDetailRequest, and esignet-plugins/mock-plugin MockHelperService
 (challenge factors: PWD/OTP, format "alpha-numeric"; mock OTP = 111111).
 """
+import base64
 import json
+import os
 import time
 import re
 
@@ -62,15 +64,20 @@ class EsignetClassic:
             return
         r = self.s.get(f"{self.base}{API}/csrf/token", timeout=15)
         token = self.s.cookies.get("XSRF-TOKEN")
-        header = "X-XSRF-TOKEN"
         try:
-            body = r.json()
-            token = token or body.get("token")
-            header = body.get("headerName") or header
+            token = token or r.json().get("token")
         except Exception:
             pass
         if token:
-            self.s.headers.update({header: token})
+            # CsrfFilter default request handler is XorCsrfTokenRequestAttributeHandler
+            # (Spring Security 6.2, verified from source): the X-XSRF-TOKEN header
+            # must be base64url(salt || salt XOR rawToken), NOT the raw cookie
+            # value. Observed: raw token -> 403 Forbidden on /authorization/**.
+            t = token.encode()
+            salt = os.urandom(len(t))
+            masked = base64.urlsafe_b64encode(
+                salt + bytes(a ^ b for a, b in zip(salt, t))).decode()
+            self.s.headers.update({"X-XSRF-TOKEN": masked})
         self._csrf_done = True
 
     def _post(self, path: str, request: dict) -> requests.Response:

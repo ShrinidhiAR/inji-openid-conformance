@@ -30,10 +30,20 @@ class Stub(BaseHTTPRequestHandler):
         pass
 
     def _check_csrf(self):
-        # every POST after the initial csrf fetch must carry the token header
+        # every POST after the initial csrf fetch must carry an XOR-masked
+        # X-XSRF-TOKEN: base64url(salt || salt XOR raw), matching Spring
+        # Security 6.2 XorCsrfTokenRequestAttributeHandler semantics.
         if self.path != "/v1/esignet/csrf/token":
-            check(self.headers.get("X-XSRF-TOKEN") == "csrf-123",
-                  f"missing/wrong X-XSRF-TOKEN on POST {self.path}")
+            import base64 as b64
+            raw = b"csrf-123"
+            h = self.headers.get("X-XSRF-TOKEN", "")
+            ok = False
+            try:
+                b = b64.urlsafe_b64decode(h)
+                ok = len(b) == 2 * len(raw) and                     bytes(x ^ y for x, y in zip(b[:len(raw)], b[len(raw):])) == raw
+            except Exception:
+                ok = False
+            check(ok, f"missing/wrong XOR-masked X-XSRF-TOKEN on POST {self.path}")
 
     def do_GET(self):
         if self.path == "/v1/esignet/csrf/token":
