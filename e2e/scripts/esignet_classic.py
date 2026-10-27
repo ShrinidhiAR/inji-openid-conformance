@@ -52,8 +52,29 @@ class EsignetClassic:
         self.base = base.rstrip("/")
         self.issuer = issuer.rstrip("/")   # e.g. http://esignet:8088 (container-visible)
         self.s = requests.Session()
+        self._csrf_done = False
+
+    def _ensure_csrf(self):
+        """/authorization/** is permitAll for auth but NOT csrf-ignored (observed:
+        POST /authorization/oauth-details -> 403 Forbidden). The oidc-ui fetches
+        /csrf/token first; mirror that: GET it once, then send X-XSRF-TOKEN."""
+        if self._csrf_done:
+            return
+        r = self.s.get(f"{self.base}{API}/csrf/token", timeout=15)
+        token = self.s.cookies.get("XSRF-TOKEN")
+        header = "X-XSRF-TOKEN"
+        try:
+            body = r.json()
+            token = token or body.get("token")
+            header = body.get("headerName") or header
+        except Exception:
+            pass
+        if token:
+            self.s.headers.update({header: token})
+        self._csrf_done = True
 
     def _post(self, path: str, request: dict) -> requests.Response:
+        self._ensure_csrf()
         r = self.s.post(f"{self.base}{API}{path}",
                         json={"requestTime": _now(), "request": request}, timeout=30)
         print(f"[esignet-classic] POST {path} -> {r.status_code}: {redact(r.text)[:500]}")
@@ -123,6 +144,7 @@ class EsignetClassic:
                       redirect_uri: str, kid: str = DEFAULT_KID) -> dict:
         # aud: issuer URL accepted (OAuthServiceImpl allows token endpoint URL
         # or issuer). Use the issuer - stable across endpoint layout changes.
+        self._ensure_csrf()
         r = self.s.post(f"{self.base}{API}/oauth/token", data={
             "grant_type": "authorization_code",
             "code": code,

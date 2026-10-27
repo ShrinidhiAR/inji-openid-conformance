@@ -29,6 +29,25 @@ class Stub(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def _check_csrf(self):
+        # every POST after the initial csrf fetch must carry the token header
+        if self.path != "/v1/esignet/csrf/token":
+            check(self.headers.get("X-XSRF-TOKEN") == "csrf-123",
+                  f"missing/wrong X-XSRF-TOKEN on POST {self.path}")
+
+    def do_GET(self):
+        if self.path == "/v1/esignet/csrf/token":
+            body = json.dumps({"parameterName": "_csrf", "token": "csrf-123",
+                               "headerName": "X-XSRF-TOKEN"}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Set-Cookie", "XSRF-TOKEN=csrf-123; Path=/")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self._send({"errors": [{"errorCode": "unknown_path"}]}, 404)
+
     def _json(self):
         n = int(self.headers.get("Content-Length", 0))
         return json.loads(self.rfile.read(n) or b"{}")
@@ -42,6 +61,7 @@ class Stub(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        self._check_csrf()
         if self.path == "/v1/esignet/client-mgmt/oauth-client":
             req = self._json()
             check("requestTime" in req, "missing requestTime")
