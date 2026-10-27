@@ -1,0 +1,51 @@
+# Certify subset of mosip/inji-certify docker-compose-injistack, adapted for the
+# e2e conformance stack: mock-mdl plugin (mso_mdoc, the only MOSIP credential
+# format the OIDF suite's OID4VCI 1.0 issuer plan supports), local eSignet as
+# the authorization server, shared e2e-net network.
+# Upstream: https://github.com/mosip/inji-certify/tree/master/docker-compose/docker-compose-injistack
+services:
+  database:
+    image: 'postgres:15'
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - ./certify_init.sql:/docker-entrypoint-initdb.d/certify_init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - e2e-net
+
+  certify:
+    image: injistack/inji-certify-with-plugins:0.14.0
+    user: root
+    environment:
+      - container_user=mosip
+      - active_profile_env=default,mock-mdl
+      - SPRING_CONFIG_NAME=certify
+      - SPRING_CONFIG_LOCATION=/home/mosip/config/
+      - enable_certify_artifactory=false
+      - download_hsm_client=false
+      - mosip_certify_domain_url=http://certify:8090
+      - mosip.certify.database.hostname=database
+      - mosip.certify.database.port=5432
+    volumes:
+      - ./config/certify-default.properties:/home/mosip/config/certify-default.properties
+      - ./config/certify-mock-mdl.properties:/home/mosip/config/certify-mock-mdl.properties
+      - ./data/CERTIFY_PKCS12:/home/mosip/CERTIFY_PKCS12
+    depends_on:
+      database:
+        condition: service_healthy
+    ports:
+      - "8088:8090"   # host-side debug only; e2e traffic uses service name
+    networks:
+      e2e-net:
+        aliases:
+          - certify
+
+networks:
+  e2e-net:
+    external: true
