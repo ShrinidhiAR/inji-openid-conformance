@@ -15,6 +15,7 @@ workflow can upload it verbatim. Test failures are FINDINGS about interop,
 not infra failures: the script exits 0 unless the harness itself broke.
 """
 import json
+import re
 import os
 import sys
 import time
@@ -91,6 +92,29 @@ def drive_browser_url(es: Esignet, url: str):
     # following the redirect hands the code to the suite's callback
     r = requests.get(redirect, headers=SUITE_HDRS, allow_redirects=False, timeout=45)
     print(f"[suite-browser] callback -> {r.status_code} location={r.headers.get('Location','')[:200]}")
+    # The suite answers the callback with its implicitCallback page: browser JS
+    # is expected to POST window.location.hash (empty for query-mode responses)
+    # back to a random /implicit/{id} URL (AbstractRedirectServerTestModule).
+    # No JS runs here, so replay that step or the module waits forever.
+    m = re.search(r"xhr\.open\('POST', '([^']+)'", r.text)
+    if m:
+        raw_submit = m.group(1)
+        # the submit target must belong to this suite instance's /implicit/ path;
+        # anything else means the callback page is not what we expect - abort
+        expect = urllib.parse.urlsplit(SUITE)
+        got = urllib.parse.urlsplit(rewrite(raw_submit))
+        if (got.scheme, got.hostname, got.port) != (expect.scheme, expect.hostname, expect.port) \
+                or not got.path.startswith("/implicit/"):
+            print(f"[suite-browser] FAIL: unexpected implicit-submit target {raw_submit!r}")
+            return
+        fragment = urllib.parse.urlsplit(redirect).fragment
+        submit = urllib.parse.urlunsplit(got)
+        rs = requests.post(submit, data=fragment,
+                           headers={**SUITE_HDRS, "Content-Type": "text/plain"},
+                           timeout=45)
+        print(f"[suite-browser] implicit submit ({submit.rsplit('/',1)[-1]}) -> {rs.status_code} {rs.text[:150]}")
+    else:
+        print("[suite-browser] WARNING: no implicit-submit URL found in callback page")
 
 RESULTS_FILE = os.environ.get("RESULTS_FILE", "/tmp/stage4-vci-results.json")
 
