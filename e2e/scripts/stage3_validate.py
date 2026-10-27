@@ -72,6 +72,7 @@ if nonce.status_code == 401:
     # 1. does the signature verify against the advertised jwks? (never print
     #    the token itself)
     try:
+        import base64
         from cryptography.hazmat.primitives.asymmetric import rsa, padding
         from cryptography.hazmat.primitives import hashes
         jwks = requests.get(jwks_uri.replace("http://esignet:8080", ESIGNET), timeout=30).json()
