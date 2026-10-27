@@ -90,12 +90,15 @@ class Esignet:
                 "userClaims": ["name", "email", "picture", "gender", "birthdate"],
                 "grantTypes": ["authorization_code"],
                 "clientAuthMethods": ["private_key_jwt"],
-                # eSignet 2.0 (clientmgmt/validate.go): optional per-client flags.
-                # {"dpop_bound_access_tokens": true} opts the client into DPoP,
-                # which the OIDF suite's sender_constrain=dpop variant requires.
-                "additionalConfig": additional_config or {},
             },
         }
+        # NOTE: the esignet 2.0.0 image's client-mgmt decoder rejects bodies with
+        # unknown fields (invalid_input), so additionalConfig is only sent when the
+        # caller provides one - and even then it may be rejected by the 2.0.0 image
+        # (master supports it, 2.0.0 may predate it). DPoP binding is also automatic
+        # per RFC 9449 when the client sends a DPoP proof, which is what the suite does.
+        if additional_config:
+            body["request"]["additionalConfig"] = additional_config
         url = f"{self.base}/client-mgmt/oidc-client"
         r = self.s.request(method, url, json=body, timeout=30)
         print(f"[esignet] register_client({method}) -> {r.status_code}: {r.text[:400]}")

@@ -96,12 +96,12 @@ def main() -> int:
 
     es = Esignet(ESIGNET)
     for cid, pub in (("inji-vci-suite", pub1), ("inji-vci-suite-2", pub2)):
-        r = es.register_client(cid, [CALLBACK], pub,
-                               additional_config={"dpop_bound_access_tokens": True})
+        # No additionalConfig: the 2.0.0 image rejects it (unknown field); DPoP is
+        # driven by the suite sending DPoP proofs at the token endpoint (RFC 9449).
+        r = es.register_client(cid, [CALLBACK], pub)
         if r.status_code not in (200, 201):
             print(f"[plan] create failed for {cid}, trying update (PUT)")
-            r = es.register_client(cid, [CALLBACK], pub, method="PUT",
-                                   additional_config={"dpop_bound_access_tokens": True})
+            r = es.register_client(cid, [CALLBACK], pub, method="PUT")
         if r.status_code not in (200, 201):
             print(f"::error::could not register suite client {cid} at eSignet")
             return 1
