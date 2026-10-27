@@ -10,11 +10,14 @@ Usage:
     python scripts/conformance_runner.py --component verify
     python scripts/conformance_runner.py --combined
 """
+import os
 import sys
 import time
 import json
+import uuid
 import argparse
 import urllib.parse
+from datetime import datetime, timezone
 import requests
 
 # Base URL of the conformance suite REST API (started by docker/docker-compose.yml).
@@ -101,8 +104,13 @@ def run_test_module(base_url, plan_id, test_module_name):
             status = status_data.get("status")
             result = status_data.get("result")
 
-            # Terminal condition: finished/review status, or a definitive result.
-            if status in ["FINISHED", "REVIEW"] or result in ["PASSED", "FAILED", "WARNING"]:
+            # Terminal condition: terminal STATUS only. The suite's official
+            # automation library (scripts/conformance.py in the conformance-suite
+            # repo) waits on status alone; a result value is only read once the
+            # module has reached a terminal status, so an intermediate value can
+            # never be mistaken for a final one. INTERRUPTED is terminal too: the
+            # outcome is recorded and the benchmark gate fails it.
+            if status in ["FINISHED", "REVIEW", "INTERRUPTED"]:
                 print(f"[RESULT] {test_module_name} -> Status: {status}, Result: {result}")
                 return {
                     "module": test_module_name,
@@ -141,8 +149,16 @@ def main():
         sys.exit(1)
 
 
-    # Maps component name -> list of per-module results.
-    all_results = {}
+    # Maps component name -> list of per-module results. A "run" block records
+    # when this output was produced; the api-testrig bridge refuses to gate on a
+    # results file without a fresh timestamp, so a stale file from an older run
+    # cannot pass the benchmark.
+    run_started_at = datetime.now(timezone.utc)
+    all_results = {"run": {
+        "id": str(uuid.uuid4()),
+        "started_at": run_started_at.isoformat(),
+        "tool": "conformance_runner.py"
+    }}
     for comp, plan_name, config_file, variants in plans_to_run:
         print(f"\n================ Starting {comp.upper()} Plan ================")
         plan_id, modules = create_plan(args.base_url, plan_name, config_file, variants)
@@ -154,10 +170,14 @@ def main():
             comp_results.append(res)
         all_results[comp] = comp_results
 
-    # Write the summary file (default: conformance-results.json, which is git-ignored).
-    with open(args.output, "w", encoding="utf-8") as out:
+    # Write the summary file atomically (default: conformance-results.json, which
+    # is git-ignored): a crash mid-write can never leave a truncated file that a
+    # later gate run might mistake for complete results.
+    tmp_output = args.output + ".tmp"
+    with open(tmp_output, "w", encoding="utf-8") as out:
         json.dump(all_results, out, indent=2)
-    print(f"\n[INFO] All results written to {args.output}")
+    os.replace(tmp_output, args.output)
+    print(f"\n[INFO] All results written to {args.output} (run id {all_results['run']['id']})")
 
 if __name__ == "__main__":
     main()

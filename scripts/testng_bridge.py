@@ -57,8 +57,12 @@ def load_results(path):
         data = json.load(f)
     if not isinstance(data, dict):
         raise ValueError("Expected a JSON object keyed by component (certify / verify).")
-    for comp, entries in data.items():
-        if not isinstance(entries, list):
+    for comp in list(data.keys()):
+        if comp == "run":
+            # Run metadata written by newer conformance_runner.py versions; not a component.
+            del data[comp]
+            continue
+        if not isinstance(data[comp], list):
             raise ValueError(f"Component '{comp}' must map to a list of module results.")
     return data
 

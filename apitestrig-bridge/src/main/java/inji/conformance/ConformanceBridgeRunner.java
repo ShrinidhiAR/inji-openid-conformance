@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -75,11 +76,13 @@ public final class ConformanceBridgeRunner {
         String component = null;
         String results = null;
         double minPassRate = 100.0;
+        long maxResultAgeMinutes = 60;
         for (int i = 0; i < args.length - 1; i++) {
             switch (args[i]) {
                 case "--component" -> component = args[++i];
                 case "--results" -> results = args[++i];
                 case "--min-pass-rate" -> minPassRate = Double.parseDouble(args[++i]);
+                case "--max-result-age-minutes" -> maxResultAgeMinutes = Long.parseLong(args[++i]);
                 default -> {
                 }
             }
@@ -89,6 +92,49 @@ public final class ConformanceBridgeRunner {
             System.err.println("[ERROR] usage: ConformanceBridgeRunner --component certify|verify|combined "
                     + "--results <conformance-results.json> [--min-pass-rate <0-100>]");
             System.exit(2);
+        }
+
+        // Freshness gate: only gate on results the current orchestration just produced.
+        // The runner stamps every output with run.id and run.started_at and writes the
+        // file atomically; a file without a fresh timestamp is refused, so a stale file
+        // left over from an older or interrupted run can never satisfy the benchmark.
+        String runId = null;
+        String runStartedAt = null;
+        try {
+            org.json.JSONObject root = new org.json.JSONObject(
+                    Files.readString(Path.of(results), java.nio.charset.StandardCharsets.UTF_8));
+            org.json.JSONObject run = root.optJSONObject("run");
+            if (run != null) {
+                runId = run.optString("id", null);
+                runStartedAt = run.optString("started_at", null);
+            }
+        } catch (Exception e) {
+            // leave runId/runStartedAt null; the freshness check below fails closed
+        }
+        if (runStartedAt == null) {
+            System.out.println("[GATE] FAIL - results file " + results + " has no run.started_at "
+                    + "timestamp. Freshness cannot be verified, so the file is not trusted for "
+                    + "gating. Re-run scripts/conformance_runner.py and gate on its fresh output.");
+            writeGateSummary(component, results, 0, new CountingListener(), 0.0, minPassRate, false);
+            System.exit(1);
+        }
+        try {
+            long ageMinutes = java.time.Duration.between(Instant.parse(runStartedAt), Instant.now()).toMinutes();
+            if (ageMinutes > maxResultAgeMinutes) {
+                System.out.println("[GATE] FAIL - results file " + results + " is " + ageMinutes
+                        + " minutes old (run id " + runId + ", started " + runStartedAt + "), older than the "
+                        + "--max-result-age-minutes " + maxResultAgeMinutes + " limit. Re-run "
+                        + "scripts/conformance_runner.py and gate on its fresh output.");
+                writeGateSummary(component, results, 0, new CountingListener(), 0.0, minPassRate, false);
+                System.exit(1);
+            }
+            System.out.println("[INFO] Results file freshness OK: run id " + runId + ", started "
+                    + runStartedAt + " (" + ageMinutes + " min ago, limit " + maxResultAgeMinutes + ").");
+        } catch (java.time.format.DateTimeParseException e) {
+            System.out.println("[GATE] FAIL - results file " + results + " has an unparseable "
+                    + "run.started_at ('" + runStartedAt + "'). Freshness cannot be verified.");
+            writeGateSummary(component, results, 0, new CountingListener(), 0.0, minPassRate, false);
+            System.exit(1);
         }
 
         System.setProperty("conformance.results", results);
