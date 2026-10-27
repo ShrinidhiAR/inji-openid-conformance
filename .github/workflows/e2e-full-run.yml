@@ -172,13 +172,24 @@ jobs:
           exit 1
 
       - name: Install Python dependencies
-        run: pip install requests cryptography
+        run: pip install requests cryptography cbor2
 
       - name: Seed the mock individual (REST, idempotent)
         run: python e2e/scripts/seed_mock_identity.py
 
       - name: Direct scripted mDL issuance
         run: python e2e/scripts/stage3_validate.py
+
+      - name: Verify issued mDL (COSE signature + MSO digests)
+        run: python e2e/scripts/verify_mdl.py
+
+      - name: Upload stage 3 mDL evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage3-mdl-evidence
+          path: stage3-evidence/
+          if-no-files-found: warn
 
       - name: Stack logs on failure
         if: failure()

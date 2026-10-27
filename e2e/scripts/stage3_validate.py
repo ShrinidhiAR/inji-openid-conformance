@@ -152,5 +152,15 @@ r = requests.post(cred_endpoint, json=cred_req,
                   headers={"Authorization": f"Bearer {access}"}, timeout=60)
 print("credential:", r.status_code, r.text[:400])
 r.raise_for_status()
-assert r.json().get("credential"), "no credential in response"
+cred = r.json().get("credential")
+assert cred, "no credential in response"
+# Persist the complete TEST-IDENTITY credential response as run evidence
+# (parent-approved). The artifact carries the credential only - never
+# access/id tokens, client keys, or mock secrets.
+import os as _os
+_os.makedirs("stage3-evidence", exist_ok=True)
+with open("stage3-evidence/credential-response.json", "w") as fh:
+    json.dump({"format": "mso_mdoc", "credential": cred}, fh)
+print("== full credential persisted to stage3-evidence/credential-response.json",
+      f"({len(cred)} chars)")
 print("STAGE3 OK: local certify issued an mDL credential via scripted wallet")
