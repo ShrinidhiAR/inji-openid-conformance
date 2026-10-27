@@ -68,6 +68,36 @@ if jwks_uri:
 # wallet proof key + c_nonce
 nonce = requests.get(f"{CERTIFY}/v1/certify/nonce",
                      headers={"Authorization": f"Bearer {access}"}, timeout=30)
+if nonce.status_code == 401:
+    # 1. does the signature verify against the advertised jwks? (never print
+    #    the token itself)
+    try:
+        from cryptography.hazmat.primitives.asymmetric import rsa, padding
+        from cryptography.hazmat.primitives import hashes
+        jwks = requests.get(jwks_uri.replace("http://esignet:8080", ESIGNET), timeout=30).json()
+        h, p, sig = access.split(".")
+        hdr = json.loads(base64.urlsafe_b64decode(h + "=="))
+        key = next(k for k in jwks["keys"] if k["kid"] == hdr["kid"])
+        n = int.from_bytes(base64.urlsafe_b64decode(key["n"] + "=="), "big")
+        e = int.from_bytes(base64.urlsafe_b64decode(key["e"] + "=="), "big")
+        pub = rsa.RSAPublicNumbers(e, n).public_key()
+        pad = padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH) \
+            if hdr["alg"] == "PS256" else padding.PKCS1v15()
+        try:
+            pub.verify(base64.urlsafe_b64decode(sig + "=="), (h + "." + p).encode(), pad, hashes.SHA256())
+            print("== local signature check: VALID (kid", hdr["kid"][:8], ")")
+        except Exception as ex:
+            print("== local signature check: INVALID:", type(ex).__name__)
+    except Exception as ex:
+        print("== local signature check: error:", ex)
+    # 2. can a container on e2e-net (like certify-app) reach the jwks url?
+    import subprocess
+    r = subprocess.run(["docker", "run", "--rm", "--network", "e2e-net",
+                        "curlimages/curl:8.10.1", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+                        "--max-time", "10", "http://esignet:8080/oauth2/jwks"],
+                       capture_output=True, text=True)
+    print("== container-network jwks probe:", r.stdout.strip(), r.stderr.strip()[:120])
+
 print("nonce:", nonce.status_code, nonce.text[:200])
 if nonce.status_code == 401:
     # isolate the nginx gateway: same call straight to certify-app (debug port)
