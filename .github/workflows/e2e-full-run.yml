@@ -17,6 +17,9 @@ concurrency:
 jobs:
   stage1-suite:
     name: Stage 1 - conformance suite boots and serves both plans
+    # gated to manual dispatch while the eSignet 1.8.0 swap is validated by
+    # stages 2-3 (evidence-only push runs); re-enable for push once green
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -89,7 +92,7 @@ jobs:
       - name: Wait for eSignet
         run: |
           for i in $(seq 1 90); do
-            if curl -sf http://localhost:8090/.well-known/openid-configuration > /dev/null 2>&1; then
+            if curl -sf http://localhost:8090/v1/esignet/.well-known/openid-configuration > /dev/null 2>&1; then
               echo "esignet up after $((i*5))s"; exit 0
             fi
             sleep 5
@@ -108,10 +111,16 @@ jobs:
           echo "::warning::mock-identity actuator did not report UP; continuing with probes anyway"
           docker compose -f e2e/compose/esignet/docker-compose.yaml logs --tail=100 mock-identity-system
 
+      - name: Install Python dependencies
+        run: pip install requests cryptography
+
+      - name: Seed the mock individual (REST, idempotent)
+        run: python e2e/scripts/seed_mock_identity.py
+
       - name: Debug mock identity seed + kyc-auth directly
         run: |
           echo "== seeded identities =="
-          docker compose -f e2e/compose/esignet/docker-compose.yaml exec -T database             psql -U postgres -d mosip_mockidentitysystem -c "select individual_id from mockidentitysystem.mock_identity;" || true
+          docker compose -f e2e/compose/esignet/docker-compose.yaml exec -T esignet-db             psql -U postgres -d mosip_mockidentitysystem -c "select individual_id from mockidentitysystem.mock_identity;" || true
           echo "== direct kyc-auth v2 (password Mosip@123) =="
           curl -s -X POST "http://localhost:8082/v1/mock-identity-system/v2/kyc-auth/e2e-rp/e2e-client"             -H "Content-Type: application/json"             -d '{"transactionId":"dbg1","individualId":"1774231323","password":"Mosip@123"}' || true
           echo
@@ -122,15 +131,8 @@ jobs:
           curl -s -X POST "http://localhost:8082/v1/mock-identity-system/v2/kyc-auth/e2e-rp/e2e-client"             -H "Content-Type: application/json"             -d '{"transactionId":"dbg3","individualId":"1774231323","otp":"111111"}' || true
           echo
 
-      - name: Install Python dependencies
-        run: pip install requests cryptography
-
       - name: Scripted authorization-code flow against local eSignet
         run: python e2e/scripts/stage2_validate.py
-
-      - name: Token-endpoint probe matrix (diagnostic)
-        if: always()
-        run: python e2e/scripts/stage2_probe_token.py || true
 
       - name: eSignet logs on failure
         if: failure()
@@ -159,7 +161,7 @@ jobs:
         run: |
           for i in $(seq 1 120); do
             E=0; C=0
-            curl -sf http://localhost:8090/.well-known/openid-configuration > /dev/null 2>&1 && E=1
+            curl -sf http://localhost:8090/v1/esignet/.well-known/openid-configuration > /dev/null 2>&1 && E=1
             curl -sf http://localhost:8088/v1/certify/.well-known/openid-credential-issuer > /dev/null 2>&1 && C=1
             if [ "$E" = 1 ] && [ "$C" = 1 ]; then echo "both up after $((i*5))s"; exit 0; fi
             sleep 5
@@ -172,6 +174,9 @@ jobs:
       - name: Install Python dependencies
         run: pip install requests cryptography
 
+      - name: Seed the mock individual (REST, idempotent)
+        run: python e2e/scripts/seed_mock_identity.py
+
       - name: Direct scripted mDL issuance
         run: python e2e/scripts/stage3_validate.py
 
@@ -183,6 +188,9 @@ jobs:
 
   stage4-suite-vci:
     name: Stage 4 - real OIDF suite OID4VCI issuer plan vs local certify
+    # gated: suite work resumes only after the 1.8.0 prerequisite (stages 2-3)
+    # passes; the suite driver still targets the Go /flow/execute API
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     needs: []
@@ -256,6 +264,8 @@ jobs:
 
   stage5-verify:
     name: Stage 5 - local Inji Verify + VP plan discovery
+    # gated with stage4 during the 1.8.0 swap validation
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:

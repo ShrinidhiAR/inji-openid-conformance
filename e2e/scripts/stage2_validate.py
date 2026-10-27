@@ -1,25 +1,27 @@
 """Stage 2 validation: prove the scripted eSignet authorization-code flow works
-against the local eSignet stack, before the conformance suite enters the picture.
+against the local eSignet 1.8.0 (Java) stack, before the conformance suite
+enters the picture.
 
-Registers a throwaway OIDC client, drives the login via eSignet's REST flow API
-(mock identity system: pre-seeded individual), and exchanges the resulting code
-for tokens with private_key_jwt - the same legs the conformance-suite
-orchestrator will need later.
+Registers a throwaway OIDC client, drives the login via eSignet's classic REST
+API (oauth-details -> authenticate -> auth-code; mock identity system:
+REST-seeded individual), and exchanges the resulting code for tokens with
+private_key_jwt - the same legs the conformance-suite orchestrator will need.
 """
 import sys
 import json
 
 sys.path.insert(0, "e2e/scripts")
-from esignet import Esignet, gen_client_key
+from esignet_classic import EsignetClassic, gen_client_key
 
-BASE = "http://localhost:8090"          # host-mapped esignet port (see compose)
+BASE = "http://localhost:8090"          # host-mapped esignet port (8088 in-container)
+ISSUER = "http://esignet:8088"        # issuer as containers on e2e-net see it
 CLIENT_ID = "e2e-stage2-client"
 REDIRECT_URI = "http://localhost:18080/callback"   # nothing listens; we only need the code
 
-es = Esignet(BASE)
+es = EsignetClassic(BASE, ISSUER)
 
 print("== openid-configuration ==")
-conf = es.s.get(f"{BASE}/.well-known/openid-configuration", timeout=30)
+conf = es.s.get(f"{BASE}/v1/esignet/.well-known/openid-configuration", timeout=30)
 print(conf.text[:800])
 conf.raise_for_status()
 

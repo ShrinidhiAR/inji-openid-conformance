@@ -1,8 +1,20 @@
-# Vendored from mosip/esignet docker-compose (esignet 2.0.0), adapted for the e2e
-# conformance stack: all services join the shared external "e2e-net" network and
-# eSignet's public host is its internal service name so that issuer URLs are
-# consistent for every container on the network.
-# Upstream: https://github.com/mosip/esignet/tree/master/docker-compose
+# Vendored from the OFFICIAL mosip/esignet docker-compose at tag v1.8.0
+# (https://github.com/mosip/esignet/blob/v1.8.0/docker-compose/docker-compose.yml),
+# adapted for the e2e conformance stack: all services join the shared external
+# "e2e-net" network and eSignet's public issuer host is its internal service name
+# so issuer URLs are consistent for every container on the network.
+#
+# Why 1.8.0 (Java): eSignet 2.0.0 is the new Go engine which issues RFC-9068
+# typ="at+jwt" access tokens that inji-certify 0.14.0's resource-server decoder
+# rejects ("JOSE header typ (type) at+jwt not allowed", proven in stage3 logs).
+# Java eSignet signs access tokens via MOSIP kernel SignatureService whose
+# JWSHeader carries no typ, and 1.8.0 is the parity baseline for 2.0.0 with
+# PAR (/oauth/par) + DPoP (DpopValidationFilter) support. Pairing status:
+# source-supported hypothesis (certify 0.14.0 was officially QA'd against
+# esignet 1.6.2 - same Java/kernel signing path; 1.8.0 adds PAR/DPoP), NOT a
+# documented tested combination. Client registration stays open because the
+# OFFICIAL application-local profile empties the secure-url maps (permitAll
+# branch in SecurityConfig) - sanctioned local mode, not a security patch.
 services:
   esignet-db:
     image: 'postgres:bookworm'
@@ -19,8 +31,15 @@ services:
     networks:
       - e2e-net
 
+  redis:
+    image: redis:6.0
+    container_name: redis-server
+    restart: always
+    networks:
+      - e2e-net
+
   mock-identity-system:
-    image: 'mosipid/mock-identity-system:0.14.0'
+    image: 'mosipid/mock-identity-system:0.13.0'
     user: root
     environment:
       - container_user=mosip
@@ -28,7 +47,8 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://esignet-db:5432/mosip_mockidentitysystem?currentSchema=mockidentitysystem
       - SPRING_DATASOURCE_USERNAME=postgres
       - SPRING_DATASOURCE_PASSWORD=postgres
-      - MOSIP_ESIGNET_HOST=esignet:8080
+      - MOSIP_MOCK_IDA_KYC_TRANSACTION_TIMEOUT_SECS=900
+      - MOSIP_ESIGNET_HOST=esignet:8088
     depends_on:
       esignet-db:
         condition: service_healthy
@@ -37,9 +57,8 @@ services:
     networks:
       - e2e-net
 
-  # esignet fetches the mock ID system signing certs (keys.json) once at startup
-  # and fails closed (FET-1005) if mock-identity-system is not listening yet.
-  # This gate container blocks esignet startup until the mock is actually serving.
+  # gate container: block esignet startup until the mock is actually serving
+  # (esignet fetches mock signing certs at boot and fails closed otherwise)
   mock-ready:
     image: curlimages/curl:8.10.1
     command: >
@@ -55,35 +74,40 @@ services:
       - e2e-net
 
   esignet:
-    image: 'mosipid/esignet:2.0.0'
+    image: 'mosipid/esignet-with-plugins:1.8.0'
     user: root
     environment:
       - container_user=mosip
-      - PORT=8080
-      - DATABASE_HOST=esignet-db
-      - DATABASE_PORT=5432
-      - DATABASE_USERNAME=postgres
-      - DATABASE_PASSWORD=postgres
-      - KEYMANAGER_KEYSTORE_TYPE=PKCS12
-      - KEYMANAGER_DB_SCHEMA=esignet
-      - KEYMANAGER_PKCS12_FILE_PATH=/opt/mosip/test.pfx
-      - KEYMANAGER_PKCS12_PASSWORD=localtest
-      - KEYMANAGER_PKCS12_ALLOW_INSECURE_SOFTWARE_KEYSTORE=true
-      - MOSIP_ESIGNET_CACHE_TYPE=inmemory
-      # Public issuer host = internal service name; every e2e container resolves it.
-      - MOSIP_ESIGNET_HOST=http://esignet:8080
-      - MOSIP_ESIGNET_OIDC_UI_HOSTNAME=localhost
-      - MOSIP_ESIGNET_CAPTCHA_SITE_PROVIDER=hcaptcha
-      - MOSIP_ESIGNET_CAPTCHA_SITE_KEY=10000000-ffff-ffff-ffff-000000000001
-      - MOSIP_ESIGNET_AUTHN_PROVIDER=mock
+      - active_profile_env=default,local
+      - plugin_name_env=esignet-mock-plugin.jar
+      - MOSIP_ESIGNET_DATABASE_URL=jdbc:postgresql://esignet-db:5432/mosip_esignet?currentSchema=esignet
+      - MOSIP_ESIGNET_DATABASE_USERNAME=postgres
+      - MOSIP_ESIGNET_DATABASE_PASSWORD=postgres
       - MOSIP_ESIGNET_MOCK_DOMAIN_URL=http://mock-identity-system:8082
+      - MOSIP_ESIGNET_INTEGRATION_KEY_BINDER=MockKeyBindingWrapperService
+      - SPRING_CACHE_TYPE=redis
+      - SPRING_DATA_REDIS_HOST=redis-server
+      - SPRING_REDIS_PASSWORD=
+      - KAFKA_ENABLED=false
+      - SPRING_AUTOCONFIGURE_EXCLUDE=org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+      # Public issuer host = internal service name; every e2e container resolves
+      # it. domain.url default forces https, so override both:
+      - MOSIP_ESIGNET_DOMAIN_URL=http://esignet:8088
+      # official local-deploy jwks URI (no esignet-ui nginx in this stack):
+      - MOSIP_ESIGNET_JWKS_URI=http://esignet:8088/v1/esignet/oauth/.well-known/jwks.json
+      # advertise + resource-map the mDL credential scope used by the local
+      # certify mock-mdl config (e2e/config/mdl-credential-configuration.json):
+      - "MOSIP_ESIGNET_SUPPORTED_CREDENTIAL_SCOPES={'sample_vc_mdoc'}"
+      - "MOSIP_ESIGNET_CREDENTIAL_SCOPE_RESOURCE_MAPPING={'sample_vc_mdoc': 'http://esignet:8088/v1/esignet/vci/credential'}"
     depends_on:
       esignet-db:
         condition: service_healthy
+      redis:
+        condition: service_started
       mock-ready:
         condition: service_completed_successfully
     ports:
-      - "8090:8080"   # host-side debug only; e2e traffic uses service name
+      - "8090:8088"   # host-side debug only; e2e traffic uses service name
     networks:
       - e2e-net
 

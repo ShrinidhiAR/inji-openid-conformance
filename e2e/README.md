@@ -73,20 +73,29 @@ its admin API, then runs the OID4VCI flow end to end: eSignet login, token,
 nonce, credential request with a wallet key proof, and verifies the returned
 mDoc.
 
-KNOWN ISSUE (verified version-pair incompatibility): eSignet 2.0.0 issues
-RFC 9068 access tokens (`typ: at+jwt`). Inji Certify 0.14.0 (Spring Boot
-3.2.3) rejects them: `GET /v1/certify/nonce` answers 401 with
+KNOWN ISSUE (verified version-pair incompatibility): eSignet 2.0.0 (the Go
+engine) issues RFC 9068 access tokens (`typ: at+jwt`). Inji Certify 0.14.0
+(Spring Boot 3.2.3) rejects them: `GET /v1/certify/nonce` answers 401 with
 `WWW-Authenticate: error="invalid_token", error_description="... JOSE header
 typ (type) at+jwt not allowed"`. The token signature itself verifies against
-eSignet's JWKS. The only other official image,
+eSignet's JWKS. The only other official certify image,
 `injistack/inji-certify-with-plugins:1.0.0-alpha.1` (alpha, not certifiable),
 does not boot with the published 0.14-era configuration: it embeds
 verify-service 0.18.2 (interactive authorization requests) and fails with
-`UnsatisfiedDependencyException` on `p12KeyExtractor` (needs new keystore
-wiring that is not yet documented upstream). So with unmodified official
-images, the issuance leg currently stops at token acceptance; stage 4 records
-this as genuine per-module failures from the official suite, not harness
-errors.
+`UnsatisfiedDependencyException` on `p12KeyExtractor`.
+
+CURRENT ROUTE BEING VALIDATED (branch e2e-full-run): eSignet was swapped to
+the official JAVA line image `mosipid/esignet-with-plugins:1.8.0` - the
+parity baseline for 2.0.0, with PAR (`/oauth/par`) and DPoP support, whose
+access tokens are signed via MOSIP kernel `SignatureUtil.getJWSHeader` that
+sets no `typ` header. Pairing status: source-supported hypothesis, NOT a
+documented tested combination (certify 0.14.0 was officially QA'd against
+esignet 1.6.2, same Java/kernel signing path but no PAR/DPoP). The login
+driver is the classic REST API (`esignet_classic.py`: oauth-details ->
+authenticate -> auth-code; no /flow/execute - that was the Go engine).
+Push-triggered runs currently execute stages 2-3 only (evidence for
+login/token + direct issuance); stages 1/4/5 run on manual dispatch until
+the swap is validated.
 
 ## Stage 4 - real OIDF suite vs local Certify
 

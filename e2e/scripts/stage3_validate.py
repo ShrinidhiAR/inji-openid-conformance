@@ -10,15 +10,17 @@ import sys, json, time, uuid
 import urllib.parse
 
 sys.path.insert(0, "e2e/scripts")
-from esignet import Esignet, gen_client_key, _sign_es256
+from esignet import gen_client_key, _sign_es256
+from esignet_classic import EsignetClassic, redact
 import requests
 
 ESIGNET = "http://localhost:8090"
+ISSUER = "http://esignet:8088"
 CERTIFY = "http://localhost:8088"
 CLIENT_ID = "e2e-stage3-wallet"
 REDIRECT_URI = "http://localhost:18080/callback"
 
-es = Esignet(ESIGNET)
+es = EsignetClassic(ESIGNET, ISSUER)
 
 print("== certify issuer metadata ==")
 from mdl_config import ensure_mdl_config
@@ -52,17 +54,18 @@ if len(_parts) == 3:
     _h = _json.loads(_b64.urlsafe_b64decode(_parts[0] + "==" ))
     _p = _json.loads(_b64.urlsafe_b64decode(_parts[1] + "==" ))
     print("== access token header:", _h)
-    print("== access token claims:", _p)
+    _keep = {k: _p.get(k) for k in ("iss", "aud", "exp", "iat", "scope") if k in _p}
+    print("== access token claims (sub/PII redacted):", _keep)
     print("== now:", int(time.time()))
 else:
     print("== access token is NOT a JWT (opaque), parts:", len(_parts))
 
 # debug: which jwks endpoint does this eSignet advertise, and does it serve?
-oc = requests.get(f"{ESIGNET}/.well-known/openid-configuration", timeout=30).json()
+oc = requests.get(f"{ESIGNET}/v1/esignet/.well-known/openid-configuration", timeout=30).json()
 jwks_uri = oc.get("jwks_uri")
 print("== esignet jwks_uri:", jwks_uri)
 if jwks_uri:
-    probe = requests.get(jwks_uri.replace("http://esignet:8080", ESIGNET), timeout=30)
+    probe = requests.get(jwks_uri.replace(ISSUER, ESIGNET), timeout=30)
     print("== jwks probe:", probe.status_code, probe.text[:150])
 
 # wallet proof key + c_nonce
@@ -75,7 +78,7 @@ if nonce.status_code == 401:
         import base64
         from cryptography.hazmat.primitives.asymmetric import rsa, padding
         from cryptography.hazmat.primitives import hashes
-        jwks = requests.get(jwks_uri.replace("http://esignet:8080", ESIGNET), timeout=30).json()
+        jwks = requests.get(jwks_uri.replace(ISSUER, ESIGNET), timeout=30).json()
         h, p, sig = access.split(".")
         hdr = json.loads(base64.urlsafe_b64decode(h + "=="))
         key = next(k for k in jwks["keys"] if k["kid"] == hdr["kid"])
@@ -107,7 +110,7 @@ if nonce.status_code == 401:
     import subprocess
     r = subprocess.run(["docker", "run", "--rm", "--network", "e2e-net",
                         "curlimages/curl:8.10.1", "-s", "-o", "/dev/null", "-w", "%{http_code}",
-                        "--max-time", "10", "http://esignet:8080/oauth2/jwks"],
+                        "--max-time", "10", ISSUER + "/v1/esignet/oauth/.well-known/jwks.json"],
                        capture_output=True, text=True)
     print("== container-network jwks probe:", r.stdout.strip(), r.stderr.strip()[:120])
 

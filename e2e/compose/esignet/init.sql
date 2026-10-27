@@ -8,6 +8,16 @@ CREATE DATABASE mosip_esignet
 
 COMMENT ON DATABASE mosip_esignet IS 'e-Signet related data is stored in this database';
 
+CREATE DATABASE mosip_mockidentitysystem
+  ENCODING = 'UTF8' 
+  LC_COLLATE = 'en_US.UTF-8' 
+  LC_CTYPE = 'en_US.UTF-8' 
+  TABLESPACE = pg_default 
+  OWNER = postgres
+  TEMPLATE  = template0;
+
+COMMENT ON DATABASE mosip_mockidentitysystem IS 'Mock identity related data is stored in this database';
+
 \c mosip_esignet postgres
 
 DROP SCHEMA IF EXISTS esignet CASCADE;
@@ -91,7 +101,6 @@ CREATE TABLE esignet.key_alias(
     CONSTRAINT pk_keymals_id PRIMARY KEY (id),
     CONSTRAINT uni_ident_const UNIQUE (uni_ident)
 );
-CREATE INDEX idx_key_alias_cert_thumbprint ON esignet.key_alias(cert_thumbprint);
 
 CREATE TABLE esignet.key_policy_def(
     app_id varchar(36) NOT NULL,
@@ -159,20 +168,23 @@ CREATE TABLE esignet.ca_cert_store(
 	CONSTRAINT cert_thumbprint_unique UNIQUE (cert_thumbprint,partner_domain)
 );
 
+CREATE TABLE IF NOT EXISTS esignet.server_profile (
+    profile_name VARCHAR(100) NOT NULL,
+    feature VARCHAR(100) NOT NULL,
+    additional_config_key VARCHAR(200) NOT NULL,
+    CONSTRAINT pk_server_profile PRIMARY KEY (profile_name, feature)
+);
+
 INSERT INTO esignet.KEY_POLICY_DEF(APP_ID,KEY_VALIDITY_DURATION,PRE_EXPIRE_DAYS,ACCESS_ALLOWED,IS_ACTIVE,CR_BY,CR_DTIMES) VALUES('ROOT', 2920, 1125, 'NA', true, 'mosipadmin', now());
 INSERT INTO esignet.KEY_POLICY_DEF(APP_ID,KEY_VALIDITY_DURATION,PRE_EXPIRE_DAYS,ACCESS_ALLOWED,IS_ACTIVE,CR_BY,CR_DTIMES) VALUES('OIDC_SERVICE', 1095, 50, 'NA', true, 'mosipadmin', now());
 INSERT INTO esignet.KEY_POLICY_DEF(APP_ID,KEY_VALIDITY_DURATION,PRE_EXPIRE_DAYS,ACCESS_ALLOWED,IS_ACTIVE,CR_BY,CR_DTIMES) VALUES('OIDC_PARTNER', 1095, 50, 'NA', true, 'mosipadmin', now());
-INSERT INTO esignet.KEY_POLICY_DEF(APP_ID,KEY_VALIDITY_DURATION,PRE_EXPIRE_DAYS,ACCESS_ALLOWED,IS_ACTIVE,CR_BY,CR_DTIMES) VALUES('BASE', 1095, 50, 'NA', true, 'mosipadmin', now());
+INSERT INTO esignet.KEY_POLICY_DEF(APP_ID,KEY_VALIDITY_DURATION,PRE_EXPIRE_DAYS,ACCESS_ALLOWED,IS_ACTIVE,CR_BY,CR_DTIMES) VALUES('BINDING_SERVICE', 1095, 50, 'NA', true, 'mosipadmin', now());
+INSERT INTO esignet.KEY_POLICY_DEF(APP_ID,KEY_VALIDITY_DURATION,PRE_EXPIRE_DAYS,ACCESS_ALLOWED,IS_ACTIVE,CR_BY,CR_DTIMES) VALUES('MOCK_BINDING_SERVICE', 1095, 50, 'NA', true, 'mosipadmin', now());
 
-CREATE DATABASE mosip_mockidentitysystem
-  ENCODING = 'UTF8' 
-  LC_COLLATE = 'en_US.UTF-8' 
-  LC_CTYPE = 'en_US.UTF-8' 
-  TABLESPACE = pg_default 
-  OWNER = postgres
-  TEMPLATE  = template0;
+INSERT INTO esignet.server_profile(profile_name, feature, additional_config_key) VALUES ('fapi2.0', 'PAR', 'require_pushed_authorization_requests');
+INSERT INTO esignet.server_profile(profile_name, feature, additional_config_key) VALUES ('fapi2.0', 'DPOP', 'dpop_bound_access_tokens');
+INSERT INTO esignet.server_profile(profile_name, feature, additional_config_key) VALUES ('fapi2.0', 'PKCE', 'require_pkce');
 
-COMMENT ON DATABASE mosip_mockidentitysystem IS 'Mock identity related data is stored in this database';
 
 \c mosip_mockidentitysystem postgres
 
@@ -259,6 +271,15 @@ CREATE TABLE mockidentitysystem.verified_claim(
     CONSTRAINT pk_verified_claim_id PRIMARY KEY (id)
 );
 
+CREATE TABLE mockidentitysystem.partner_data (
+    partner_id character varying(100) NOT NULL,
+    client_id character varying(100) NOT NULL,
+    public_key text,
+    status character varying(50),
+    cr_dtimes timestamp NOT NULL,
+    CONSTRAINT pk_partner_data_partner_id_client_id PRIMARY KEY (partner_id, client_id)
+);
+
 CREATE TABLE mockidentitysystem.ca_cert_store(
 	cert_id character varying(36) NOT NULL,
 	cert_subject character varying(500) NOT NULL,
@@ -282,17 +303,5 @@ CREATE TABLE mockidentitysystem.ca_cert_store(
 	CONSTRAINT cert_thumbprint_unique UNIQUE (cert_thumbprint,partner_domain)
 );
 
-CREATE TABLE mockidentitysystem.partner_data (
-    partner_id character varying(100) NOT NULL,
-    client_id character varying(100) NOT NULL,
-    public_key text,
-    status character varying(50),
-    cr_dtimes timestamp NOT NULL,
-    CONSTRAINT pk_partner_data_partner_id_client_id PRIMARY KEY (partner_id, client_id)
-);
-
 INSERT INTO mockidentitysystem.KEY_POLICY_DEF(APP_ID,KEY_VALIDITY_DURATION,PRE_EXPIRE_DAYS,ACCESS_ALLOWED,IS_ACTIVE,CR_BY,CR_DTIMES) VALUES('ROOT', 2920, 1125, 'NA', true, 'mosipadmin', now());
 INSERT INTO mockidentitysystem.KEY_POLICY_DEF(APP_ID,KEY_VALIDITY_DURATION,PRE_EXPIRE_DAYS,ACCESS_ALLOWED,IS_ACTIVE,CR_BY,CR_DTIMES) VALUES('MOCK_AUTHENTICATION_SERVICE', 1095, 50, 'NA', true, 'mosipadmin', now());
-
-INSERT INTO mockidentitysystem.mock_identity (individual_id,identity_json) VALUES
-	 ('1774231323','{"individualId":"1774231323","pin":"545411","email":"siddhartha.km@gmail.com","phone":"+919427357934","fullName":[{"language":"fra","value":"Siddharth K Mansour"},{"language":"ara","value":"تتگلدكنسَزقهِقِفل دسييسيكدكنوڤو"},{"language":"eng","value":"Siddharth K Mansour"}],"nickName":[{"language":"fra","value":"Siddharth K Mansour"},{"language":"ara","value":"تتگلدكنسَزقهِقِفل دسييسيكدكنوڤو"},{"language":"eng","value":"Siddharth K Mansour"}],"preferredUsername":[{"language":"fra","value":"Siddharth K Mansour"},{"language":"ara","value":"تتگلدكنسَزقهِقِفل دسييسيكدكنوڤو"},{"language":"eng","value":"Siddharth K Mansour"}],"givenName":[{"language":"fra","value":"Siddharth K Mansour"},{"language":"ara","value":"تتگلدكنسَزقهِقِفل دسييسيكدكنوڤو"},{"language":"eng","value":"Siddharth K Mansour"}],"middleName":[{"language":"fra","value":"Siddharth K Mansour"},{"language":"ara","value":"تتگلدكنسَزقهِقِفل دسييسيكدكنوڤو"},{"language":"eng","value":"Siddharth K Mansour"}],"familyName":[{"language":"fra","value":"Mansour"},{"language":"ara","value":"تتگلدكنسَزقهِقِفل"},{"language":"eng","value":"Mansour"}],"gender":[{"language":"eng","value":"Male"},{"language":"fra","value":"Mâle"},{"language":"ara","value":"ذكر"}],"dateOfBirth":"1987/11/25","streetAddress":[{"language":"eng","value":"Slung"}],"locality":[{"language":"eng","value":"yuanwee"}],"password":"A4BA98331ACD26F1E8598F4EDE21582D92872F34941ACF307864242D285BF626","preferredLang":"eng","locale":"en","region":[{"language":"eng","value":"yuanwee"}],"zoneInfo":"test zone","postalCode":"45009","country":[{"language":"fra","value":"CMâttye"},{"language":"ara","value":"دسييسيكدك"},{"language":"eng","value":"Cmattey"}],"encodedPhoto":"data:image/jpeg;base64,/9j/4AAQSkZJRgABAgAAAQABAAD/wAARCAMABAADAREAAhE"}');
