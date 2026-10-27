@@ -37,7 +37,7 @@ m = cbor2.loads(raw)
 check(m.get("docType") == "org.iso.18013.5.1.mDL", f"top-level docType = {m.get('docType')!r}")
 issuer_signed = m["issuerSigned"]
 ia = issuer_signed["issuerAuth"]
-if isinstance(ia, cbor2.CBORTag):
+if isinstance(ia, cbor2.CBORTag):  # tag(18) wrapper is optional in practice
     check(ia.tag == 18, f"issuerAuth CBOR tag = {ia.tag} (18 = COSE_Sign1)")
     ia = ia.value
 protected, unprotected, payload, signature = ia
@@ -59,7 +59,18 @@ print(f"issuer cert: subject={cert.subject.rfc4514_string()} issuer={cert.issuer
 print(f"  validity {cert.not_valid_before_utc} .. {cert.not_valid_after_utc}, self_signed={self_signed}")
 print("  NOTE: self-signed ephemeral TEST issuer key - proves cryptographic integrity only, NOT external issuer trust")
 
-# 1. COSE_Sign1 signature
+# 1. COSE_Sign1 signature. COSE ES256 signatures are raw R||S (64 bytes);
+# cryptography wants DER - convert (observed: real certify credential failed
+# verification until converted; my first synthetic test used DER and masked
+# this).
+from cryptography.hazmat.primitives.asymmetric.utils import (
+    decode_dss_signature, encode_dss_signature)
+sig_len = len(signature)
+if sig_len == 2 * (curve().key_size // 8):  # raw R||S
+    half = sig_len // 2
+    r_int = int.from_bytes(signature[:half], "big")
+    s_int = int.from_bytes(signature[half:], "big")
+    signature = encode_dss_signature(r_int, s_int)
 sig_structure = cbor2.dumps(["Signature1", protected, b"", payload])
 try:
     cert.public_key().verify(signature, sig_structure, ec.ECDSA(hash_alg()))
@@ -67,8 +78,11 @@ try:
 except InvalidSignature:
     check(False, "COSE_Sign1 signature verifies against embedded x5c cert")
 
-# 2. MSO docType consistency
+# 2. MSO docType consistency. The COSE payload may itself be a
+# tag(24)-wrapped bstr (ISO 18013-5 style) - unwrap defensively.
 mso = cbor2.loads(payload)
+if isinstance(mso, cbor2.CBORTag):
+    mso = cbor2.loads(mso.value)
 check(mso.get("docType") == m.get("docType"), f"MSO docType == top-level docType ({mso.get('docType')!r})")
 print(f"MSO: version={mso.get('version')!r} digestAlgorithm={mso.get('digestAlgorithm')!r} "
       f"validityInfo={mso.get('validityInfo')}")
