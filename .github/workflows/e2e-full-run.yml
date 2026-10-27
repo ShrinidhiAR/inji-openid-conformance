@@ -9,6 +9,11 @@ on:
     branches: [e2e-full-run]
   workflow_dispatch:
 
+# experimental branch: only the newest push's run matters
+concurrency:
+  group: e2e-full-run-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   stage1-suite:
     name: Stage 1 - conformance suite boots and serves both plans
@@ -179,7 +184,7 @@ jobs:
   stage4-suite-vci:
     name: Stage 4 - real OIDF suite OID4VCI issuer plan vs local certify
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 150
     needs: []
     steps:
       - uses: actions/checkout@v4

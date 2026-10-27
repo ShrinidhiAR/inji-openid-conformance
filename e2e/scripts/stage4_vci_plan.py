@@ -155,7 +155,8 @@ def main() -> int:
         print(f"[module] started id={mid} -> {r.status_code}: {r.text[:300]}")
 
         status = result = None
-        deadline = time.time() + 600
+        driven = set()  # PAR request_uris are single-use; drive each URL once
+        deadline = time.time() + 300
         while time.time() < deadline:
             try:
                 w = suite("GET", f"/api/runner/{mid}/wait-state",
@@ -172,14 +173,16 @@ def main() -> int:
                     continue
             if state == "WAITING":
                 b = suite("GET", f"/api/runner/browser/{mid}").json()
-                urls = b.get("urls") or []
+                urls = [u for u in (b.get("urls") or []) if u not in driven]
                 if not urls:
                     continue
+                url = urls[0]
+                driven.add(url)
                 try:
-                    drive_browser_url(es, urls[0])
+                    drive_browser_url(es, url)
                 except Exception as e:
                     print(f"[module] browser drive failed: {e}")
-                    # let the module decide what a dead front-channel means
+                    # the suite decides what a dead front-channel means
                     time.sleep(5)
                 continue
             info = suite("GET", f"/api/info/{mid}").json()
