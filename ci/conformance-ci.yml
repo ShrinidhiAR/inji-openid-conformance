@@ -1,0 +1,167 @@
+name: conformance-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_live_conformance:
+        description: >-
+          Run live conformance against reachable Inji endpoints. Requires repository
+          variables INJI_CERTIFY_URL and/or INJI_VERIFY_URL.
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  harness-checks:
+    # These jobs use fixture data only. A green run means the harness and the gate
+    # work; it says nothing about any live Inji component passing conformance.
+    name: Harness checks (fixtures, not live conformance)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install Python dependency
+        run: pip install requests
+
+      - name: Python sources compile
+        run: python -m py_compile scripts/conformance_runner.py scripts/testng_bridge.py
+
+      - name: XML bridge runs on the illustrative sample (sample data, not a real run)
+        run: python scripts/testng_bridge.py --input docs/sample-output/sample-conformance-results.json --output /tmp/sample-testng.xml
+
+      - name: Build the api-testrig bridge
+        run: mvn -B -f apitestrig-bridge/pom.xml compile
+
+      - name: Benchmark gate passes on an all-pass fixture
+        run: |
+          cat > /tmp/all-pass.json <<'JSON'
+          {
+            "certify": [
+              {"module": "fixture-certify-module-a", "test_id": "f1", "status": "FINISHED", "result": "PASSED"},
+              {"module": "fixture-certify-module-b", "test_id": "f2", "status": "FINISHED", "result": "PASSED"}
+            ],
+            "verify": [
+              {"module": "fixture-verify-module-a", "test_id": "f3", "status": "FINISHED", "result": "PASSED"}
+            ]
+          }
+          JSON
+          mvn -B -f apitestrig-bridge/pom.xml compile exec:java \
+            -Dexec.args="--component combined --results /tmp/all-pass.json"
+
+      - name: Benchmark gate fails the build on a failing fixture
+        run: |
+          cat > /tmp/with-failure.json <<'JSON'
+          {
+            "certify": [
+              {"module": "fixture-certify-module-a", "test_id": "f1", "status": "FINISHED", "result": "PASSED"},
+              {"module": "fixture-certify-module-b", "test_id": "f2", "status": "FINISHED", "result": "FAILED"}
+            ]
+          }
+          JSON
+          if mvn -B -f apitestrig-bridge/pom.xml compile exec:java \
+              -Dexec.args="--component certify --results /tmp/with-failure.json"; then
+            echo "::error::Gate passed on failing data - the gate is broken."
+            exit 1
+          fi
+          echo "Gate failed the build as designed."
+
+      - name: Benchmark gate fails the build on an empty result set
+        run: |
+          echo '{ "certify": [], "verify": [] }' > /tmp/empty.json
+          if mvn -B -f apitestrig-bridge/pom.xml compile exec:java \
+              -Dexec.args="--component combined --results /tmp/empty.json"; then
+            echo "::error::Gate passed on empty results - the gate is broken."
+            exit 1
+          fi
+          echo "Gate failed the build as designed (empty results never pass)."
+
+      - name: Upload fixture reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: testng-report-fixtures
+          path: apitestrig-bridge/testng-report/
+          if-no-files-found: ignore
+
+  live-conformance:
+    # Runs real conformance plans against reachable Inji instances and gates the
+    # build on the outcome. Without reachable endpoints the gate fails closed.
+    name: Live conformance (manual dispatch)
+    if: github.event_name == 'workflow_dispatch' && inputs.run_live_conformance
+    runs-on: ubuntu-latest
+    env:
+      INJI_CERTIFY_URL: ${{ vars.INJI_CERTIFY_URL }}
+      INJI_VERIFY_URL: ${{ vars.INJI_VERIFY_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install Python dependency
+        run: pip install requests
+
+      - name: Require reachable Inji endpoints
+        run: |
+          if [ -z "$INJI_CERTIFY_URL" ] && [ -z "$INJI_VERIFY_URL" ]; then
+            echo "::error::Set repository variables INJI_CERTIFY_URL and/or INJI_VERIFY_URL to reachable Inji instances before dispatching this workflow."
+            exit 1
+          fi
+
+      - name: Start the OpenID conformance suite
+        run: docker compose -f docker/docker-compose.yml up -d
+
+      - name: Point the plan configs at the configured endpoints
+        run: |
+          python - <<'PY'
+          import json, os
+          certify = os.environ.get("INJI_CERTIFY_URL")
+          verify = os.environ.get("INJI_VERIFY_URL")
+          if certify:
+              p = "docker/configs/certify-issuer-config.json"
+              cfg = json.load(open(p, encoding="utf-8-sig"))
+              cfg["server"]["discoveryUrl"] = certify.rstrip("/") + "/.well-known/openid-credential-issuer"
+              json.dump(cfg, open(p, "w"), indent=2)
+          if verify:
+              p = "docker/configs/verify-verifier-config.json"
+              cfg = json.load(open(p, encoding="utf-8-sig"))
+              cfg["verifier"]["presentation_definition_uri"] = verify.rstrip("/") + "/presentation-definition"
+              json.dump(cfg, open(p, "w"), indent=2)
+          PY
+
+      - name: Run the conformance harness
+        run: python scripts/conformance_runner.py --combined
+
+      - name: Gate the build through the api-testrig bridge
+        working-directory: apitestrig-bridge
+        run: |
+          mvn -B -f pom.xml compile exec:java \
+            -Dexec.args="--component combined --results ../conformance-results.json"
+
+      - name: Upload conformance results and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-conformance-report
+          path: |
+            conformance-results.json
+            apitestrig-bridge/testng-report/
+          if-no-files-found: ignore
