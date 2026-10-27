@@ -61,7 +61,7 @@ else:
     print("== access token is NOT a JWT (opaque), parts:", len(_parts))
 
 # debug: which jwks endpoint does this eSignet advertise, and does it serve?
-oc = requests.get(f"{ESIGNET}/v1/esignet/.well-known/openid-configuration", timeout=30).json()
+oc = requests.get(f"{ESIGNET}/v1/esignet/oidc/.well-known/openid-configuration", timeout=30).json()
 jwks_uri = oc.get("jwks_uri")
 print("== esignet jwks_uri:", jwks_uri)
 if jwks_uri:

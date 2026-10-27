@@ -21,7 +21,7 @@ REDIRECT_URI = "http://localhost:18080/callback"   # nothing listens; we only ne
 es = EsignetClassic(BASE, ISSUER)
 
 print("== openid-configuration ==")
-conf = es.s.get(f"{BASE}/v1/esignet/.well-known/openid-configuration", timeout=30)
+conf = es.s.get(f"{BASE}/v1/esignet/oidc/.well-known/openid-configuration", timeout=30)
 print(conf.text[:800])
 conf.raise_for_status()
 
