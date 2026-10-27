@@ -96,7 +96,9 @@ def drive_browser_url(es: Esignet, url: str):
     # is expected to POST window.location.hash (empty for query-mode responses)
     # back to a random /implicit/{id} URL (AbstractRedirectServerTestModule).
     # No JS runs here, so replay that step or the module waits forever.
-    m = re.search(r"xhr\.open\('POST', '([^']+)'", r.text)
+    # thymeleaf javascript-inlines the URL as a double-quoted JS string literal;
+    # accept either quote style
+    m = re.search("xhr\\.open\\('POST',\\s*['\"]([^'\"]+)", r.text)
     if m:
         raw_submit = m.group(1)
         # the submit target must belong to this suite instance's /implicit/ path;
