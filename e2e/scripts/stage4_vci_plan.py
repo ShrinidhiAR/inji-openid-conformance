@@ -205,6 +205,39 @@ def drive_authorize_url(es: EsignetClassic, url: str, expected_scope: str):
     replay_implicit_submit(callback_url, r.text)
 
 
+# --- artifact scrubber -------------------------------------------------------
+# Redact BEFORE serialization - redacting the serialized form injects
+# unescaped quotes and corrupts the JSON (observed on run 40543683358).
+# The suite logs its config verbatim, including client.jwks PRIVATE keys
+# (observed exposed on run 40543683358 -> artifact deleted, containment).
+_JWK_PRIVATE_MEMBERS = {"d", "k", "p", "q", "dp", "dq", "qi", "oth"}
+_PEM_PRIVATE_RE = re.compile(
+    r"-----BEGIN (?:RSA |EC |ENCRYPTED )?PRIVATE KEY-----[^-]*-----END (?:RSA |EC |ENCRYPTED )?PRIVATE KEY-----",
+    re.DOTALL,
+)
+
+
+def _redact_for_artifact(o):
+    """Recursively scrub secrets from suite log entries before json.dump.
+
+    - strings: compact JWTs via redact(), PEM private-key blocks
+    - dicts that look like JWKs (carry "kty"): private members replaced;
+      public members (kty/crv/x/y/kid/use/alg) preserved
+    - dicts without "kty": recursed untouched - a bare "d" key elsewhere is
+      harmless data, not key material, and must not be stripped blindly
+    """
+    if isinstance(o, str):
+        return _PEM_PRIVATE_RE.sub("<PEM private key redacted>", redact(o))
+    if isinstance(o, list):
+        return [_redact_for_artifact(v) for v in o]
+    if isinstance(o, dict):
+        if "kty" in o:
+            return {k: ("<redacted private jwk member>" if k in _JWK_PRIVATE_MEMBERS
+                        else _redact_for_artifact(v)) for k, v in o.items()}
+        return {k: _redact_for_artifact(v) for k, v in o.items()}
+    return o
+
+
 def main() -> int:
     from mdl_config import ensure_mdl_config
     mdoc_id, issuer_url = ensure_mdl_config(CERTIFY)
@@ -363,12 +396,7 @@ def main() -> int:
             safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", name)
             log_file = os.path.join(LOG_DIR, f"stage4-suite-log-{safe}.json")
             with open(log_file, "w") as fh:
-                json.dump(entries, fh, indent=2, default=str)
-            # redact JWTs in a second pass over the serialized form
-            with open(log_file) as fh:
-                redacted = redact(fh.read())
-            with open(log_file, "w") as fh:
-                fh.write(redacted)
+                json.dump(_redact_for_artifact(entries), fh, indent=2, default=str)
             print(f"[module] full event log saved ({len(entries) if isinstance(entries, list) else '?'} entries) -> {log_file}")
             if result != "PASSED":
                 for e in entries if isinstance(entries, list) else []:

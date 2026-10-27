@@ -71,6 +71,7 @@ jobs:
           name: plan-info
           path: plan-info/
           if-no-files-found: ignore
+          retention-days: 1
 
       - name: Suite logs on failure
         if: failure()
@@ -190,6 +191,7 @@ jobs:
           name: stage3-mdl-evidence
           path: stage3-evidence/
           if-no-files-found: warn
+          retention-days: 1
 
       - name: Stack logs on failure
         if: failure()
@@ -271,6 +273,7 @@ jobs:
             /tmp/suite-callback-page.html
             /tmp/stage4-suite-log-*.json
           if-no-files-found: warn
+          retention-days: 1
 
       - name: Stack logs on failure
         if: failure()
