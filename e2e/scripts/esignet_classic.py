@@ -149,6 +149,25 @@ class EsignetClassic:
         }
         return details
 
+
+    def par_oauth_details(self, client_id: str, request_uri: str) -> dict:
+        """POST /authorization/par-oauth-details (PushedOAuthDetailRequest:
+        clientId + requestUri ONLY - no scope/acr fields; the pushed request
+        body holds them exactly as the client sent them, acr null/empty when
+        the client pushed none). NOTE: AuthorizationServiceImpl
+        .getPAROAuthDetails evicts the PAR cache entry (getAndEvictPAR), so a
+        request_uri is single-use - call exactly once per suite browser URL."""
+        details = self._unwrap(self._post("/authorization/par-oauth-details", {
+            "clientId": client_id,
+            "requestUri": request_uri,
+        }), "par-oauth-details")
+        # HeaderValidationFilter headers for the follow-up authenticate/auth-code
+        self._tx_headers = {
+            "oauth-details-key": details["transactionId"],
+            "oauth-details-hash": _b64url_sha256(details),
+        }
+        return details
+
     def authenticate(self, transaction_id: str, individual_id: str,
                      password: str = "Mosip@123") -> dict:
         return self._unwrap(self._post("/authorization/authenticate", {

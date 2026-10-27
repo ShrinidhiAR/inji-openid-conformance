@@ -1,0 +1,5 @@
+# SYNTHETIC, single-capture interface shape - NOT conformance evidence.
+# Query params exactly as the suite builds them for a FAPI2 PAR redirect
+# (BuildRequestObjectByReferenceRedirectToAuthorizationEndpointWithoutDuplicates):
+# client_id + request_uri only.
+http://esignet:8088/authorize?client_id=inji-vci-suite&request_uri=urn%3Aietf%3Aparams%3Aoauth%3Arequest_uri%3AAbCdEf123singleUse

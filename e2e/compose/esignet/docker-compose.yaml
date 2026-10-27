@@ -73,7 +73,7 @@ services:
     networks:
       - e2e-net
 
-  esignet:
+  esignet-app:
     image: 'mosipid/esignet-with-plugins:1.8.0'
     user: root
     environment:
@@ -106,10 +106,28 @@ services:
         condition: service_started
       mock-ready:
         condition: service_completed_successfully
-    ports:
-      - "8090:8088"   # host-side debug only; e2e traffic uses service name
     networks:
       - e2e-net
+
+  # RFC 8615 gateway in front of eSignet (same pattern as the certify gateway
+  # and MOSIP's own injistack nginx): Java eSignet serves discovery documents
+  # under its /v1/esignet context path, but RFC 8414/OIDC discovery (and the
+  # OIDF suite) fetch {scheme}://{authority}/.well-known/<type>[issuerPath].
+  # The issuer identifier stays http://esignet:8088, so this gateway answers
+  # on that name: well-known paths are rewritten, everything else (including
+  # /v1/esignet/**) passes through unchanged. Infra gateway, not a SUT change.
+  esignet-gateway:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./gateway.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "8090:8088"   # host-side debug only; e2e traffic uses service name
+    depends_on:
+      - esignet-app
+    networks:
+      e2e-net:
+        aliases:
+          - esignet
 
 networks:
   e2e-net:

@@ -2,21 +2,45 @@
 """Stage 4: run the REAL OpenID Foundation conformance suite's
 oid4vci-1_0-issuer-test-plan against the local inji-certify (mock-mdl profile,
 mso_mdoc format - the only MOSIP credential format the suite's issuer plan
-supports) with local eSignet as the authorization server.
+supports) with local eSignet 1.8.0 (Java, classic REST) as the authorization
+server.
 
 This is not a fixture and not a replay: the suite container executes its own
-21 test modules against the running certify container. This script only plays
-the role of the human wallet user: when a module parks in WAITING with a
-browser URL (the eSignet authorize URL), it performs the scripted eSignet
-login (same driver as stage 2/3) and follows the redirect back to the suite.
+test modules against the running certify container. This script only plays the
+role of the human wallet user. Suite VCI modules push their authorization
+request to eSignet's PAR endpoint themselves (they hold the client's private
+key); when a module parks in WAITING with a browser URL
+(authorize?client_id=...&request_uri=...), this driver:
 
-Outputs /tmp/stage4-vci-results.json with per-module status/result so the
-workflow can upload it verbatim. Test failures are FINDINGS about interop,
-not infra failures: the script exits 0 unless the harness itself broke.
+  1. resolves the pushed request via POST /authorization/par-oauth-details
+     (single-use: eSignet evicts the request_uri on this call);
+  2. verifies FAIL-CLOSED that the resolved credential scopes are exactly the
+     credential scope advertised by the live issuer metadata (deployed-version
+     computed value, acr null/empty - no openid scope, which eSignet 1.8.0's
+     OIDCScopeValidator forbids alongside a credential scope);
+  3. runs the classic authenticate (PWD, mock individual) and auth-code calls;
+  4. hands the authorization code back to the suite by following its callback
+     URL and replaying the suite's implicit-submit browser step (verified
+     against a real captured suite page in the earlier eSignet-module stage).
+
+Variant choice: openid=plain_oauth. The suite's own variant doc says "If your
+server supports issuing id_tokens, pick 'openid connect'. Otherwise pick
+plain_oauth." eSignet 1.8.0 issues no id_token for credential-scope flows
+(credential scope may not be combined with openid), so plain_oauth is the
+official variant matching the actual claimed test scope - no id_token or
+protocol check is weakened; the suite still runs every VCI check of the
+selected modules.
+
+Outputs /tmp/stage4-vci-results.json with plan/test IDs and per-module
+status/result, plus /tmp/stage4-suite-log-<module>.json with each non-PASSED
+module's FULL event log (JWT bodies redacted) so suite failure args and the
+resulting module state are preserved verbatim. Test failures are FINDINGS
+about interop, not infra failures: the script exits 0 unless the harness
+itself broke (HARNESS_* -> exit 2).
 """
 import json
-import re
 import os
+import re
 import sys
 import time
 import urllib.parse
@@ -24,10 +48,12 @@ import urllib.parse
 import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from esignet import Esignet, gen_client_key
+from esignet import gen_client_key
+from esignet_classic import EsignetClassic, redact
 
 SUITE = "http://localhost:8080"
-ESIGNET = "http://localhost:8090"
+ESIGNET_HOST = "http://localhost:8090"   # host-published gateway port
+ESIGNET_ISSUER = "http://esignet:8088"   # in-network issuer string
 CERTIFY = "http://localhost:8088"
 # The suite rejects plain-HTTP requests unless this header marks them as
 # arriving via a TLS-terminating proxy (discovered in stage 1).
@@ -35,9 +61,6 @@ SUITE_HDRS = {"X-Forwarded-Proto": "https"}
 ALIAS = "inji-vci"
 CALLBACK = f"http://localhost:8080/test/a/{ALIAS}/callback"
 INDIVIDUAL = "1774231323"  # mock-identity-system seed (verified in stage 2)
-# browser URLs produced by the suite point at in-network service names; the
-# script runs on the runner host, so rewrite to the published host ports.
-HOST_REWRITE = {"esignet:8080": "localhost:8090", "certify:8090": "localhost:8088"}
 
 VARIANT = {
     "fapi_profile": "vci",
@@ -47,21 +70,21 @@ VARIANT = {
     "fapi_request_method": "unsigned",
     "fapi_response_mode": "plain_response",
     "grant_management": "disabled",
-    "openid": "openid_connect",
-    # eSignet 2.0 supports DPoP but not mTLS client auth, so dpop is the only
-    # sender-constrain option; the client is opted in via additionalConfig.
+    # plain_oauth: eSignet 1.8.0 issues no id_token for credential-scope
+    # flows; see module docstring. Matches the claimed test scope.
+    "openid": "plain_oauth",
+    # eSignet 1.8.0 supports DPoP (DpopValidationFilter) but not mTLS client
+    # auth, so dpop is the only sender-constrain option.
     "sender_constrain": "dpop",
     "vci_authorization_code_flow_variant": "wallet_initiated",
     "vci_credential_encryption": "plain",
     "vci_grant_type": "authorization_code",
 }
 
-def rewrite(url: str) -> str:
-    parts = urllib.parse.urlsplit(url)
-    netloc = parts.netloc
-    if netloc in HOST_REWRITE:
-        parts = parts._replace(netloc=HOST_REWRITE[netloc])
-    return urllib.parse.urlunsplit(parts)
+RESULTS_FILE = os.environ.get("RESULTS_FILE", "/tmp/stage4-vci-results.json")
+CALLBACK_HTML_FILE = os.environ.get("CALLBACK_HTML_FILE", "/tmp/suite-callback-page.html")
+LOG_DIR = os.environ.get("SUITE_LOG_DIR", "/tmp")
+
 
 def suite(method: str, path: str, **kw) -> requests.Response:
     kw.setdefault("headers", {}).update(SUITE_HDRS)
@@ -77,36 +100,24 @@ def suite(method: str, path: str, **kw) -> requests.Response:
             print(f"[suite] {method} {path} connection error ({e.__class__.__name__}); retrying")
             time.sleep(3)
 
+
 class HarnessReplayError(RuntimeError):
     """The driver failed to replay a suite browser step - harness, not product."""
 
 
-def drive_browser_url(es: Esignet, url: str):
-    """Play the wallet user for one suite-provided authorize URL."""
-    url = rewrite(url)
-    q = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
-    print(f"[suite-browser] authorize URL params: client_id={q.get('client_id')} "
-          f"redirect_uri={q.get('redirect_uri')} scope={q.get('scope')}")
-    auth_id, execution_id, _ = es.begin_authorize(q)
-    if not auth_id:
-        raise RuntimeError("esignet authorize did not yield an authId")
-    assertion = es.drive_flow(execution_id, INDIVIDUAL)
-    redirect = es.auth_callback(auth_id, assertion)
-    redirect = rewrite(redirect)
-    # following the redirect hands the code to the suite's callback
-    r = requests.get(redirect, headers=SUITE_HDRS, allow_redirects=False, timeout=45)
-    print(f"[suite-browser] callback -> {r.status_code} location={r.headers.get('Location','')[:200]}")
-    # always preserve the actual rendered callback page as artifact evidence
+def replay_implicit_submit(callback_url: str, html: str):
+    """The suite answers the auth-code callback with its implicitCallback page:
+    browser JS is expected to POST window.location.hash (empty for query-mode
+    responses) back to a random /implicit/{id} URL
+    (AbstractRedirectServerTestModule). No JS runs here, so replay that step or
+    the module waits forever. Verified against a real captured suite page
+    (stage 1); fails closed when the page is not what we expect."""
     with open(CALLBACK_HTML_FILE, "w") as fh:
-        fh.write(r.text)
-    print(f"[suite-browser] callback page saved ({len(r.text)} bytes) -> {CALLBACK_HTML_FILE}")
-    # The suite answers the callback with its implicitCallback page: browser JS
-    # is expected to POST window.location.hash (empty for query-mode responses)
-    # back to a random /implicit/{id} URL (AbstractRedirectServerTestModule).
-    # No JS runs here, so replay that step or the module waits forever.
+        fh.write(html)
+    print(f"[suite-browser] callback page saved ({len(html)} bytes) -> {CALLBACK_HTML_FILE}")
     # thymeleaf javascript-inlines the URL as a double-quoted JS string literal;
     # accept either quote style
-    m = re.search("xhr\\.open\\('POST',\\s*['\"]([^'\"]+)", r.text)
+    m = re.search("xhr\\.open\\('POST',\\s*['\"]([^'\"]+)", html)
     if not m:
         raise HarnessReplayError(
             "no implicit-submit URL parsed from the rendered callback page "
@@ -123,21 +134,75 @@ def drive_browser_url(es: Esignet, url: str):
     # {suite-origin}/test/a/{alias}/implicit/{id}; anything else means the
     # callback page is not what we expect - abort
     expect = urllib.parse.urlsplit(SUITE)
-    got = urllib.parse.urlsplit(rewrite(raw_submit))
+    got = urllib.parse.urlsplit(raw_submit)
     if (got.scheme, got.hostname, got.port) != (expect.scheme, expect.hostname, expect.port) \
             or not got.path.startswith(f"/test/a/{ALIAS}/implicit/"):
         raise HarnessReplayError(f"unexpected implicit-submit target {raw_submit!r}")
-    fragment = urllib.parse.urlsplit(redirect).fragment
-    submit = urllib.parse.urlunsplit(got)
-    rs = requests.post(submit, data=fragment,
+    fragment = urllib.parse.urlsplit(callback_url).fragment
+    rs = requests.post(urllib.parse.urlunsplit(got), data=fragment,
                        headers={**SUITE_HDRS, "Content-Type": "text/plain"},
                        timeout=45)
-    print(f"[suite-browser] implicit submit ({submit.rsplit('/',1)[-1]}) -> {rs.status_code} {rs.text[:150]}")
+    print(f"[suite-browser] implicit submit ({got.path.rsplit('/',1)[-1]}) -> {rs.status_code} {rs.text[:150]}")
     if not 200 <= rs.status_code < 300:
         raise HarnessReplayError(f"suite rejected implicit submit: {rs.status_code} {rs.text[:200]}")
 
-RESULTS_FILE = os.environ.get("RESULTS_FILE", "/tmp/stage4-vci-results.json")
-CALLBACK_HTML_FILE = os.environ.get("CALLBACK_HTML_FILE", "/tmp/suite-callback-page.html")
+
+def drive_authorize_url(es: EsignetClassic, url: str, expected_scope: str):
+    """Play the wallet user for one suite-provided authorize URL.
+
+    The suite built this URL from the AS metadata's authorization_endpoint
+    with exactly client_id + request_uri (FAPI2 PAR redirect,
+    BuildRequestObjectByReferenceRedirectToAuthorizationEndpointWithout
+    Duplicates). Anything else means the flow is not what this driver
+    implements - fail closed."""
+    q = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
+    client_id = q.get("client_id")
+    request_uri = q.get("request_uri")
+    if not client_id or not request_uri:
+        raise HarnessReplayError(
+            f"suite browser URL is not a PAR redirect (params: {sorted(q)}) - "
+            "this driver only implements the PAR wallet-user step")
+    unexpected = set(q) - {"client_id", "request_uri"}
+    if unexpected:
+        raise HarnessReplayError(f"unexpected params on PAR redirect URL: {sorted(unexpected)}")
+    print(f"[suite-browser] PAR redirect: client_id={client_id} request_uri={request_uri[:60]}...")
+
+    details = es.par_oauth_details(client_id, request_uri)
+    # Fail-closed scope check: the resolved credential scopes must be exactly
+    # the credential scope the DEPLOYED issuer metadata advertises (suite set
+    # client.scope from it verbatim per
+    # VCIDetermineCredentialConfigurationTransferMethod), with no openid
+    # scope - eSignet 1.8.0 forbids mixing them (OIDCScopeValidator). acr
+    # stays null/empty: the suite's PAR body carries no acr_values and this
+    # driver adds none.
+    cred_scopes = details.get("credentialScopes") or []
+    authz_scopes = details.get("authorizeScopes") or []
+    if cred_scopes != [expected_scope] or "openid" in authz_scopes:
+        raise HarnessReplayError(
+            f"resolved scopes do not match the deployed credential scope: "
+            f"credentialScopes={cred_scopes} authorizeScopes={authz_scopes} "
+            f"expected exactly [{expected_scope!r}] and no openid")
+    print(f"[suite-browser] resolved credential scope OK: {cred_scopes}")
+
+    tid = details["transactionId"]
+    es.authenticate(tid, INDIVIDUAL)
+    claims = list(dict.fromkeys(
+        (details.get("essentialClaims") or []) + (details.get("voluntaryClaims") or [])))
+    ac = es.auth_code(tid, claims, authz_scopes)
+    redirect = ac.get("redirectUri")
+    state = ac.get("state")
+    code = ac.get("code")
+    if not redirect or state is None or not code:
+        raise HarnessReplayError(
+            f"auth-code response incomplete (redirectUri={'set' if redirect else 'MISSING'} "
+            f"state={'set' if state is not None else 'MISSING'} code={'set' if code else 'MISSING'})")
+    sep = "&" if "?" in redirect else "?"
+    callback_url = (f"{redirect}{sep}code={urllib.parse.quote(code, safe='')}"
+                    f"&state={urllib.parse.quote(state, safe='')}")
+    # following the callback hands the code to the suite's redirect endpoint
+    r = requests.get(callback_url, headers=SUITE_HDRS, allow_redirects=False, timeout=45)
+    print(f"[suite-browser] callback -> {r.status_code} location={r.headers.get('Location','')[:200]}")
+    replay_implicit_submit(callback_url, r.text)
 
 
 def main() -> int:
@@ -145,34 +210,48 @@ def main() -> int:
     mdoc_id, issuer_url = ensure_mdl_config(CERTIFY)
     print(f"[plan] issuer={issuer_url} credential_configuration_id={mdoc_id}")
 
+    # the credential scope the suite will adopt from the live issuer metadata
+    md = requests.get(f"{CERTIFY}/v1/certify/.well-known/openid-credential-issuer",
+                      timeout=30).json()
+    expected_scope = md["credential_configurations_supported"][mdoc_id]["scope"]
+    print(f"[plan] deployed credential scope (from live metadata): {expected_scope}")
+
     pem_path = "e2e/compose/certify/config/mdl-issuer-trust-anchor.pem"
     trust_anchor_pem = open(pem_path).read()
 
     _, pub1, priv1 = gen_client_key(); pub1["kid"] = priv1["kid"] = "suite-vci-1"
     _, pub2, priv2 = gen_client_key(); pub2["kid"] = priv2["kid"] = "suite-vci-2"
 
-    es = Esignet(ESIGNET)
+    es = EsignetClassic(ESIGNET_HOST, ESIGNET_ISSUER)
     for cid, pub in (("inji-vci-suite", pub1), ("inji-vci-suite-2", pub2)):
-        # No additionalConfig: the 2.0.0 image rejects it (unknown field); DPoP is
-        # driven by the suite sending DPoP proofs at the token endpoint (RFC 9449).
         r = es.register_client(cid, [CALLBACK], pub)
         if r.status_code not in (200, 201):
             print(f"[plan] create failed for {cid}, trying update (PUT)")
             r = es.register_client(cid, [CALLBACK], pub, method="PUT")
-        if r.status_code not in (200, 201):
-            print(f"::error::could not register suite client {cid} at eSignet")
+        body = {}
+        try:
+            body = r.json()
+        except Exception:
+            pass
+        if r.status_code not in (200, 201) or body.get("errors"):
+            print(f"::error::could not register suite client {cid} at eSignet: "
+                  f"{r.status_code} {redact(r.text)[:300]}")
             return 1
 
     config = {
         "alias": ALIAS,
-        "description": "OID4VCI 1.0 issuer plan vs local inji-certify mock-mdl + local eSignet (e2e harness)",
+        "description": "OID4VCI 1.0 issuer plan vs local inji-certify mock-mdl + local eSignet 1.8.0 classic (e2e harness)",
         "vci": {
             "credential_issuer_url": issuer_url,
-            "authorization_server": "http://esignet:8080",
+            "authorization_server": ESIGNET_ISSUER,
             "credential_configuration_id": mdoc_id,
             "credential_proof_type_hint": "jwt",
         },
         "credential": {"trust_anchor_pem": trust_anchor_pem},
+        # client.scope is REPLACED by the suite from the issuer metadata's
+        # credential configuration scope
+        # (VCIDetermineCredentialConfigurationTransferMethod); the value here
+        # is a placeholder only.
         "client": {"client_id": "inji-vci-suite", "scope": "openid", "jwks": {"keys": [priv1]}},
         "client2": {"client_id": "inji-vci-suite-2", "scope": "openid", "jwks": {"keys": [priv2]}},
     }
@@ -252,7 +331,7 @@ def main() -> int:
                 url = urls[0]
                 driven.add(url)
                 try:
-                    drive_browser_url(es, url)
+                    drive_authorize_url(es, url, expected_scope)
                 except HarnessReplayError as e:
                     # driver defect, not a product verdict: record distinctly
                     # and stop promptly instead of waiting out the deadline
@@ -273,14 +352,25 @@ def main() -> int:
             # never to be read as a product outcome
             print(f"[module] deadline expired without terminal state for {name}")
             status, result = "HARNESS_TIMEOUT", None
+
+        # preserve the module's FULL event log (JWT bodies redacted) as its own
+        # artifact: suite failure args and resulting module state stay
+        # available verbatim instead of only as an excerpt
         error_excerpt = None
-        if result != "PASSED":
-            # pull the module's event log for the real failure reason
-            try:
-                entries = suite("GET", f"/api/log/{mid}").json()
-                # full event log: the stall happens between suite-side steps and
-                # an error filter hides the last thing the suite attempted
-                print(f"[module] full event log ({len(entries) if isinstance(entries, list) else '?'} entries):")
+        log_file = None
+        try:
+            entries = suite("GET", f"/api/log/{mid}").json()
+            safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", name)
+            log_file = os.path.join(LOG_DIR, f"stage4-suite-log-{safe}.json")
+            with open(log_file, "w") as fh:
+                json.dump(entries, fh, indent=2, default=str)
+            # redact JWTs in a second pass over the serialized form
+            with open(log_file) as fh:
+                redacted = redact(fh.read())
+            with open(log_file, "w") as fh:
+                fh.write(redacted)
+            print(f"[module] full event log saved ({len(entries) if isinstance(entries, list) else '?'} entries) -> {log_file}")
+            if result != "PASSED":
                 for e in entries if isinstance(entries, list) else []:
                     msg = e.get("msg") if isinstance(e, dict) else str(e)
                     src = e.get("source") if isinstance(e, dict) else ""
@@ -290,13 +380,14 @@ def main() -> int:
                     msg = json.dumps(e)
                     if any(k in msg.lower() for k in ("error", "exception", "fail", "invalid")):
                         bad.append(e.get("msg") if isinstance(e, dict) else msg)
-                error_excerpt = bad[:4] or None
+                error_excerpt = [redact(str(b))[:400] for b in (bad[:4] or [])] or None
                 print(f"[module] log excerpt: {json.dumps(error_excerpt)[:800]}")
-            except Exception as e:
-                print(f"[module] could not fetch log: {e}")
+        except Exception as e:
+            print(f"[module] could not fetch log: {e}")
         print(f"[module] {name}: status={status} result={result}")
-        results.append({"module": name, "status": status, "result": result,
-                        "error_excerpt": error_excerpt})
+        results.append({"module": name, "test_id": mid, "status": status,
+                        "result": result, "error_excerpt": error_excerpt,
+                        "event_log_file": os.path.basename(log_file) if log_file else None})
         flush()  # preserve partial evidence if the job is cancelled later
 
     counts = {}
@@ -312,10 +403,10 @@ def main() -> int:
         "counts": counts,
         "results": results,
         "note": "Real OIDF conformance suite executing against local inji-certify "
-                "(mock-mdl) + local eSignet. Non-PASSED results are interop findings, "
-                "recorded verbatim, not harness failures.",
+                "(mock-mdl) + local eSignet 1.8.0 classic. Non-PASSED results are "
+                "interop findings, recorded verbatim, not harness failures.",
     }
-    with open("/tmp/stage4-vci-results.json", "w") as f:
+    with open(RESULTS_FILE, "w") as f:
         json.dump(out, f, indent=2)
     print(f"\n[summary] {json.dumps(counts)}")
     harness_bad = [r0 for r0 in results
