@@ -32,6 +32,9 @@ services:
       - mosip_certify_domain_url=http://certify:8090
       - mosip.certify.database.hostname=certify-db
       - mosip.certify.database.port=5432
+      # DEBUG while diagnosing the /nonce + /credential 401s: log the exact
+      # JwtException/BearerToken cause (remove once resolved).
+      - LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY=DEBUG
     volumes:
       - ./config/certify-default.properties:/home/mosip/config/certify-default.properties
       - ./config/certify-mock-mdl.properties:/home/mosip/config/certify-mock-mdl.properties
@@ -39,6 +42,8 @@ services:
     depends_on:
       certify-db:
         condition: service_healthy
+    ports:
+      - "8099:8090"   # host-side debug: bypasses the nginx gateway
     networks:
       - e2e-net
 
