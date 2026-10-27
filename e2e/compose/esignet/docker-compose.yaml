@@ -49,8 +49,8 @@ services:
         sleep 5;
       done; echo mock-identity did not become ready; exit 1"
     depends_on:
-      mock-ready:
-        condition: service_completed_successfully
+      mock-identity-system:
+        condition: service_started
     networks:
       - e2e-net
 
