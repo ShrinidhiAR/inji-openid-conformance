@@ -69,6 +69,11 @@ if jwks_uri:
 nonce = requests.get(f"{CERTIFY}/v1/certify/nonce",
                      headers={"Authorization": f"Bearer {access}"}, timeout=30)
 print("nonce:", nonce.status_code, nonce.text[:200])
+if nonce.status_code == 401:
+    # isolate the nginx gateway: same call straight to certify-app (debug port)
+    d = requests.get("http://localhost:8099/v1/certify/nonce",
+                     headers={"Authorization": f"Bearer {access}"}, timeout=15)
+    print("nonce direct-to-app:", d.status_code, d.text[:200])
 c_nonce = nonce.json().get("c_nonce") if nonce.status_code == 200 else None
 
 proof_key_pem, proof_pub_jwk, _ = gen_client_key()
