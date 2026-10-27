@@ -23,7 +23,7 @@ jobs:
       - name: Wait for the suite API
         run: |
           for i in $(seq 1 100); do
-            if curl -sf http://localhost:8080/api/plan > /dev/null 2>&1; then
+            if curl -sf -H "X-Forwarded-Proto: https" http://localhost:8080/api/plan > /dev/null 2>&1; then
               echo "suite is up after $((i*5))s"; exit 0
             fi
             sleep 5
@@ -34,7 +34,7 @@ jobs:
 
       - name: List published plans (confirm our two plan names exist)
         run: |
-          curl -s http://localhost:8080/api/plan | python3 -c "
+          curl -s -H "X-Forwarded-Proto: https" http://localhost:8080/api/plan | python3 -c "
           import json,sys
           plans=json.load(sys.stdin)
           names=[p.get('planName') for p in plans]
@@ -45,8 +45,8 @@ jobs:
       - name: Dump plan info (config fields + variants) for both plans
         run: |
           mkdir -p plan-info
-          curl -s http://localhost:8080/api/plan/info/oid4vci-1_0-issuer-test-plan > plan-info/oid4vci-issuer.json
-          curl -s http://localhost:8080/api/plan/info/oid4vp-1final-verifier-test-plan > plan-info/oid4vp-verifier.json
+          curl -s -H "X-Forwarded-Proto: https" http://localhost:8080/api/plan/info/oid4vci-1_0-issuer-test-plan > plan-info/oid4vci-issuer.json
+          curl -s -H "X-Forwarded-Proto: https" http://localhost:8080/api/plan/info/oid4vp-1final-verifier-test-plan > plan-info/oid4vp-verifier.json
           python3 - <<'PY'
           import json
           for f in ["plan-info/oid4vci-issuer.json", "plan-info/oid4vp-verifier.json"]:

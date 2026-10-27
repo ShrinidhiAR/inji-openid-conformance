@@ -124,8 +124,12 @@ class Esignet:
         return "".join(c for c in s.lower() if c.isalnum())
 
     def drive_flow(self, execution_id: str, individual_id: str,
-                   pin: str = "545411", otp: str = "111111",
+                   pin: str = "Mosip@123", otp: str = "111111",
                    captcha_token: str = "10000000-aaaa-bbbb-cccc-000000000001",
+                   # default password verified against the mock-identity-system 0.14.0
+                   # seed (init.sql: individual 1774231323 stores sha256("Mosip@123"));
+                   # the PIN 545411 from older docs is a different field and fails
+                   # the 2.0 password factor with FET-1005.
                    max_steps: int = 15) -> str:
         """Walk /flow/execute steps until COMPLETE; return the signed assertion.
 
