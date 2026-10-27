@@ -76,8 +76,8 @@ inji-openid-conformance/
 ├── scripts/
 │   ├── conformance_runner.py                 # REST API driver
 │   └── testng_bridge.py                      # JSON results -> TestNG-style XML (standalone export)
-├── ci/
-│   └── conformance-ci.yml                    # GitHub Actions workflow (move to .github/workflows/ to activate)
+├── .github/workflows/
+│   └── conformance-ci.yml                    # CI: harness checks on fixtures + manual live-conformance job
 ├── .gitignore
 └── README.md
 ```
@@ -388,12 +388,8 @@ reporting.
 
 ## CI/CD
 
-`ci/conformance-ci.yml` is a ready GitHub Actions workflow with two jobs. To
-activate it, move it to `.github/workflows/conformance-ci.yml` (one rename in the
-GitHub web UI works - no local tooling needed). It is stored outside
-`.github/workflows/` in this repo because the access token used to publish these
-commits does not have GitHub's `workflow` scope, which pushing an active workflow
-file requires. The two jobs:
+`.github/workflows/conformance-ci.yml` is the GitHub Actions workflow, active on
+every push to `main`. It has two jobs:
 
 * **Harness checks (every push and PR):** compiles the Python and Java code, runs
   the standalone XML bridge on the illustrative sample, and proves the benchmark
