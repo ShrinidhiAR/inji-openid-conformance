@@ -52,7 +52,13 @@ def _sign_es256(private_pem: str, header: dict, payload: dict) -> str:
     key = serialization.load_pem_private_key(private_pem.encode(), password=None)
     h = _b64u(json.dumps(header).encode())
     p = _b64u(json.dumps(payload).encode())
-    sig = key.sign(f"{h}.{p}".encode(), _ec.ECDSA(hashes.SHA256()))
+    der = key.sign(f"{h}.{p}".encode(), _ec.ECDSA(hashes.SHA256()))
+    # JWS ES256 signature is raw R||S (2x32 bytes); cryptography returns DER.
+    # Posting the DER blob makes eSignet reject the client assertion with
+    # 401 invalid_client.
+    from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+    r, sv = decode_dss_signature(der)
+    sig = r.to_bytes(32, "big") + sv.to_bytes(32, "big")
     return f"{h}.{p}.{_b64u(sig)}"
 
 
@@ -210,11 +216,10 @@ class Esignet:
 
     def exchange_code(self, code: str, client_id: str, private_pem: str, redirect_uri: str) -> dict:
         token_url = f"{self.base}/oauth2/token"
-        # private_key_jwt audience: esignet 2.0 sets its expected JWT audience to
-        # the configured issuer itself (esignet-service internal/config/app.go:
-        # cfg.JWT.Audience = cfg.Issuer), not the token endpoint path and not the
-        # host:port this client dialed. Using either yields 401 invalid_client.
-        aud = "http://esignet:8080"
+        # private_key_jwt audience per docs/relying-party-integration.md: the token
+        # endpoint URL as the server knows itself (MOSIP_ESIGNET_HOST), not the
+        # localhost debug port this client actually dialed.
+        aud = "http://esignet:8080/oauth2/token"
         r = self.s.post(token_url, data={
             "grant_type": "authorization_code",
             "code": code,

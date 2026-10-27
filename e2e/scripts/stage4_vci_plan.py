@@ -150,7 +150,8 @@ def main() -> int:
             results.append({"module": name, "status": "HARNESS_ERROR", "result": None})
             continue
         mid = r.json().get("id")
-        r = suite("POST", f"/api/runner/{mid}/start")
+        # start = POST /api/runner/{id} (TestRunner.java @PostMapping("/runner/{id}"))
+        r = suite("POST", f"/api/runner/{mid}")
         print(f"[module] started id={mid} -> {r.status_code}")
 
         status = result = None
