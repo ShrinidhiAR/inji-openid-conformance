@@ -155,7 +155,7 @@ def main() -> int:
     # bounded scope: run only selected modules (comma-separated exact names);
     # default establishes the happy path first.
     sel = os.environ.get("MODULES",
-        "oid4vci-1_0-issuer-metadata-test,oid4vci-1_0-issuer-happy-flow")
+        "oid4vci-1_0-issuer-happy-flow")
     wanted = [w.strip() for w in sel.split(",") if w.strip()]
     module_names = [m for m in module_names if m in wanted]
     print(f"[plan] running {len(module_names)} selected modules: {module_names}")
@@ -222,6 +222,13 @@ def main() -> int:
             # pull the module's event log for the real failure reason
             try:
                 entries = suite("GET", f"/api/log/{mid}").json()
+                # full event log: the stall happens between suite-side steps and
+                # an error filter hides the last thing the suite attempted
+                print(f"[module] full event log ({len(entries) if isinstance(entries, list) else '?'} entries):")
+                for e in entries if isinstance(entries, list) else []:
+                    msg = e.get("msg") if isinstance(e, dict) else str(e)
+                    src = e.get("source") if isinstance(e, dict) else ""
+                    print(f"   [{src}] {str(msg)[:200]}")
                 bad = []
                 for e in entries if isinstance(entries, list) else []:
                     msg = json.dumps(e)

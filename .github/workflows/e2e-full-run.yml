@@ -233,7 +233,9 @@ jobs:
             echo "$c: OOMKilled/Restarting/ExitCode = $oom"
           done
           echo "== suite logs tail =="
-          docker compose -f docker/docker-compose.yml logs --tail=80 server 2>/dev/null || true
+          docker compose -f e2e/compose/suite/docker-compose.yml logs --tail=150 suite-server 2>&1 || true
+          echo "== esignet token-endpoint hits =="
+          docker compose -f e2e/compose/esignet/docker-compose.yaml logs esignet 2>&1 | grep -i "oauth2/token" | tail -10 || true
 
       - name: Upload per-module results
         if: always()
