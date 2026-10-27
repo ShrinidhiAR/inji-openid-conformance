@@ -124,7 +124,15 @@ if nonce.status_code == 401:
     d = requests.get("http://localhost:8099/v1/certify/nonce",
                      headers={"Authorization": f"Bearer {access}"}, timeout=15)
     print("nonce direct-to-app:", d.status_code, d.text[:200])
-c_nonce = nonce.json().get("c_nonce") if nonce.status_code == 200 else None
+# certify 0.14.0 has NO /nonce endpoint (observed 404 "No static resource
+# nonce"); for VC-scoped tokens eSignet puts c_nonce in BOTH the token
+# response body and the access-token claims (TokenServiceImpl:155-156), and
+# certify's getValidClientNonce reads it from the access-token claims. The
+# proof JWT's "nonce" claim must equal it (JwtProofValidator
+# DefaultJWTClaimsVerifier exact match) - omitting it fails with
+# 400 invalid_proof (observed run 40528635850).
+c_nonce = tokens.get("c_nonce") or (nonce.json().get("c_nonce") if nonce.status_code == 200 else None)
+print("== c_nonce source:", "token-response" if tokens.get("c_nonce") else "nonce-endpoint/none")
 
 proof_key_pem, proof_pub_jwk, _ = gen_client_key()
 now = int(time.time())
