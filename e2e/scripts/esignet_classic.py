@@ -166,6 +166,28 @@ class EsignetClassic:
             "permittedAuthorizeScopes": list(permitted_scopes),
         }, headers=getattr(self, "_tx_headers", None)), "auth-code")
 
+    def drive_authorize_url(self, authorize_url: str, individual_id: str,
+                            password: str = "Mosip@123") -> str:
+        """Play the wallet user for a THIRD-PARTY authorize URL (stage 4: the
+        OIDF suite's per-test authorize URL). Uses the URL's own
+        client_id/redirect_uri/scope/state/nonce, runs the classic
+        oauth-details/authenticate/auth-code flow, and returns the callback
+        URL (redirect_uri with code+state) for the caller to follow."""
+        import urllib.parse
+        q = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(authorize_url).query))
+        details = self.oauth_details(
+            q["client_id"], q["redirect_uri"],
+            q.get("scope") or "openid", q.get("state") or "", q.get("nonce") or "")
+        tid = details["transactionId"]
+        self.authenticate(tid, individual_id, password)
+        claims = list(dict.fromkeys(
+            (details.get("essentialClaims") or []) + (details.get("voluntaryClaims") or [])))
+        ac = self.auth_code(tid, claims, details.get("authorizeScopes") or [])
+        redirect = ac.get("redirectUri") or q["redirect_uri"]
+        state = ac.get("state") or q.get("state") or ""
+        sep = "&" if "?" in redirect else "?"
+        return f"{redirect}{sep}code={ac['code']}&state={urllib.parse.quote(state, safe='')}"
+
     def exchange_code(self, code: str, client_id: str, private_pem: str,
                       redirect_uri: str, kid: str = DEFAULT_KID) -> dict:
         # aud: issuer URL accepted (OAuthServiceImpl allows token endpoint URL
