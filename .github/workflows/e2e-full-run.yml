@@ -223,6 +223,18 @@ jobs:
       - name: Run the OIDF OID4VCI issuer test plan
         run: python e2e/scripts/stage4_vci_plan.py
 
+      - name: Stack diagnostics (OOM/crash evidence)
+        if: always()
+        run: |
+          docker ps -a --format '{{.Names}} {{.Status}}'
+          free -m
+          for c in $(docker ps -a --format '{{.Names}}'); do
+            oom=$(docker inspect -f '{{.State.OOMKilled}} {{.State.Restarting}} {{.State.ExitCode}}' "$c" 2>/dev/null || true)
+            echo "$c: OOMKilled/Restarting/ExitCode = $oom"
+          done
+          echo "== suite logs tail =="
+          docker compose -f docker/docker-compose.yml logs --tail=80 server 2>/dev/null || true
+
       - name: Upload per-module results
         if: always()
         uses: actions/upload-artifact@v4

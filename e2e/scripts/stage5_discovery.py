@@ -25,13 +25,26 @@ def main() -> int:
     r = requests.get(f"{VERIFY}/v1/verify/did.json", timeout=30)
     print("== did.json:", r.status_code, r.text[:400])
 
-    r = requests.post(f"{VERIFY}/v1/verify/vp-request", json={}, timeout=30)
+    body = {
+        "clientId": "oidf-suite-wallet",
+        "presentationDefinition": {
+            "id": "e2e-pd-1",
+            "input_descriptors": [{
+                "id": "e2e-id-1",
+                "format": {"vc+sd-jwt": {"sd-jwt_alg_values": ["ES256"],
+                                          "kb-jwt_alg_values": ["ES256"]}},
+                "constraints": {"fields": [{"path": ["$.vct"],
+                                            "filter": {"type": "string"}}]},
+            }],
+        },
+    }
+    r = requests.post(f"{VERIFY}/v1/verify/vp-request", json=body, timeout=30)
     print("== create vp-request:", r.status_code, r.text[:600])
     if r.status_code not in (200, 201):
         print("::error::could not create a VP request")
         return 1
-    body = r.json()
-    request_id = body.get("requestId")
+    resp = r.json()
+    request_id = resp.get("requestId")
     print("== request fields:", json.dumps(body, indent=1)[:800])
 
     r = requests.get(f"{VERIFY}/v1/verify/vp-request/{request_id}", timeout=30)
