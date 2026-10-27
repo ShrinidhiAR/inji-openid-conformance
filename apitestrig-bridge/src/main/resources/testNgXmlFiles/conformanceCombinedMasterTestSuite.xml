@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd">
+
+<!-- Combined mode: Certify and Verify conformance results in one TestNG run. -->
+<suite name="Inji Combined OpenID Conformance Suite">
+	<listeners>
+		<listener class-name="io.mosip.testrig.apirig.report.EmailableReport" />
+	</listeners>
+	<test name="Inji Certify and Verify OpenID Conformance">
+		<classes>
+			<class name="inji.conformance.ConformanceResultsTest" />
+		</classes>
+	</test>
+</suite>

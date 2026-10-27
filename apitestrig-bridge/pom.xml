@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>inji.conformance</groupId>
+    <artifactId>apitestrig-conformance-bridge</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+    <name>apitestrig-conformance-bridge</name>
+    <description>Feeds OpenID conformance-suite results into MOSIP's api-testrig TestNG/EmailableReport reporting as real TestNG results.</description>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <!-- MOSIP api-testrig commons: provides the EmailableReport listener used by
+             inji-certify/api-test and inji-verify/api-test (same group/version those rigs pin). -->
+        <dependency>
+            <groupId>io.mosip.testrig.apitest.commons</groupId>
+            <artifactId>apitest-commons</artifactId>
+            <version>1.4.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.testng</groupId>
+            <artifactId>testng</artifactId>
+            <version>7.11.0</version>
+        </dependency>
+        <!-- org.json classes; same library the Inji rigs already depend on -->
+        <dependency>
+            <groupId>com.github.openjson</groupId>
+            <artifactId>openjson</artifactId>
+            <version>1.0.13</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <mainClass>inji.conformance.ConformanceBridgeRunner</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

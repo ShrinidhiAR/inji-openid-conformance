@@ -9,3 +9,9 @@ conformance-results.json
 
 # Docker Data
 mongo_data/
+# api-testrig bridge build output
+apitestrig-bridge/target/
+apitestrig-bridge/testng-report/
+
+# runtime logs
+apitestrig-bridge/src/logs/

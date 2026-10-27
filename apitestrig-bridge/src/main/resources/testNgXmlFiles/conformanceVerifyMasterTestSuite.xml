@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd">
+
+<!-- Inji Verify conformance results as TestNG results, reported through the same
+     EmailableReport listener the Inji api-test rigs use. -->
+<suite name="Inji-Verify OpenID Conformance Suite">
+	<listeners>
+		<listener class-name="io.mosip.testrig.apirig.report.EmailableReport" />
+	</listeners>
+	<test name="Inji Verify OpenID4VP Conformance">
+		<classes>
+			<class name="inji.conformance.ConformanceResultsTest" />
+		</classes>
+	</test>
+</suite>
