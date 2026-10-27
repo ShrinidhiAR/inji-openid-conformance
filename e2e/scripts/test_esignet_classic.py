@@ -91,15 +91,23 @@ class Stub(BaseHTTPRequestHandler):
             check(r["clientId"] == CLIENT_ID and r["redirectUri"] == REDIRECT, "ids")
             check(isinstance(r.get("acrValues"), str), "acrValues must be a space-separated string")
             seen["details"] = r
-            self._send({"response": {
+            resp = {
                 "transactionId": "txn-1",
                 "authFactors": [[{"type": "PWD", "format": "alpha-numeric"}]],
                 "authorizeScopes": ["openid", "sample_vc_mdoc"],
                 "essentialClaims": ["name"],
                 "voluntaryClaims": ["email"],
-            }})
+            }
+            seen["details_resp"] = resp
+            self._send({"response": resp})
 
         elif self.path == "/v1/esignet/authorization/authenticate":
+            import base64 as b64, hashlib
+            expected = b64.urlsafe_b64encode(hashlib.sha256(
+                json.dumps(seen["details_resp"], separators=(",", ":"), ensure_ascii=False).encode()
+            ).digest()).decode().rstrip("=")
+            check(self.headers.get("oauth-details-key") == "txn-1", "oauth-details-key header")
+            check(self.headers.get("oauth-details-hash") == expected, "oauth-details-hash header")
             r = self._json()["request"]
             check(r["transactionId"] == "txn-1", "transactionId")
             check(r["individualId"] == INDIVIDUAL, "individualId")
@@ -110,6 +118,8 @@ class Stub(BaseHTTPRequestHandler):
             self._send({"response": {"transactionId": "txn-1", "authStatus": True}})
 
         elif self.path == "/v1/esignet/authorization/auth-code":
+            check(self.headers.get("oauth-details-key") == "txn-1", "oauth-details-key header (auth-code)")
+            check(self.headers.get("oauth-details-hash"), "oauth-details-hash header (auth-code)")
             r = self._json()["request"]
             check(r["transactionId"] == "txn-1", "auth-code transactionId")
             check(set(r["acceptedClaims"]) == {"name", "email"}, "claims echoed")

@@ -16,6 +16,7 @@ OAuthDetailRequest, and esignet-plugins/mock-plugin MockHelperService
 (challenge factors: PWD/OTP, format "alpha-numeric"; mock OTP = 111111).
 """
 import base64
+import hashlib
 import json
 import os
 import time
@@ -41,6 +42,15 @@ def redact(text: str) -> str:
         except Exception:
             return "<JWT redacted>"
     return _JWT_RE.sub(_mask, str(text))
+
+
+def _b64url_sha256(obj) -> str:
+    """oauth-details-hash: SHA-256 over the compact JSON of the response object,
+    base64url without padding - mirrors IdentityProviderUtil.generateB64EncodedHash
+    (SHA-256, urlSafeEncoder) and oidc-ui getOauthDetailsHash (JSON.stringify of the
+    parsed response; key order preserved from the received body)."""
+    raw = json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).decode().rstrip("=")
 
 
 def _now() -> str:
@@ -80,10 +90,11 @@ class EsignetClassic:
             self.s.headers.update({"X-XSRF-TOKEN": masked})
         self._csrf_done = True
 
-    def _post(self, path: str, request: dict) -> requests.Response:
+    def _post(self, path: str, request: dict, headers: dict = None) -> requests.Response:
         self._ensure_csrf()
         r = self.s.post(f"{self.base}{API}{path}",
-                        json={"requestTime": _now(), "request": request}, timeout=30)
+                        json={"requestTime": _now(), "request": request},
+                        headers=headers or {}, timeout=30)
         print(f"[esignet-classic] POST {path} -> {r.status_code}: {redact(r.text)[:500]}")
         return r
 
@@ -120,7 +131,7 @@ class EsignetClassic:
 
     def oauth_details(self, client_id: str, redirect_uri: str, scope: str,
                       state: str, nonce: str) -> dict:
-        return self._unwrap(self._post("/authorization/oauth-details", {
+        details = self._unwrap(self._post("/authorization/oauth-details", {
             "clientId": client_id,
             "scope": scope,
             "responseType": "code",
@@ -129,6 +140,14 @@ class EsignetClassic:
             "nonce": nonce,
             "acrValues": "mosip:idp:acr:password",  # space-separated String, not array (OAuthDetailRequest.acrValues)
         }), "oauth-details")
+        # HeaderValidationFilter (esignet-service) requires these two headers on
+        # /authorization/authenticate and /authorization/auth-code; missing ->
+        # 200 envelope with invalid_transaction (observed in run 40527851283).
+        self._tx_headers = {
+            "oauth-details-key": details["transactionId"],
+            "oauth-details-hash": _b64url_sha256(details),
+        }
+        return details
 
     def authenticate(self, transaction_id: str, individual_id: str,
                      password: str = "Mosip@123") -> dict:
@@ -138,14 +157,14 @@ class EsignetClassic:
             "challengeList": [
                 {"authFactorType": "PWD", "challenge": password, "format": "alpha-numeric"},
             ],
-        }), "authenticate")
+        }, headers=getattr(self, "_tx_headers", None)), "authenticate")
 
     def auth_code(self, transaction_id: str, accepted_claims, permitted_scopes) -> dict:
         return self._unwrap(self._post("/authorization/auth-code", {
             "transactionId": transaction_id,
             "acceptedClaims": list(accepted_claims),
             "permittedAuthorizeScopes": list(permitted_scopes),
-        }), "auth-code")
+        }, headers=getattr(self, "_tx_headers", None)), "auth-code")
 
     def exchange_code(self, code: str, client_id: str, private_pem: str,
                       redirect_uri: str, kid: str = DEFAULT_KID) -> dict:
