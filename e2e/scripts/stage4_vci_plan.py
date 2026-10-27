@@ -113,12 +113,19 @@ def drive_browser_url(es: Esignet, url: str):
             f"(saved to {CALLBACK_HTML_FILE}) - aborting promptly instead of "
             "letting the module park")
     raw_submit = m.group(1)
-    # the submit target must belong to this suite instance's /implicit/ path;
-    # anything else means the callback page is not what we expect - abort
+    # thymeleaf's javascript serializer escapes '/' as '\/' inside the string
+    # literal (observed in the real rendered page); undo JS string escaping
+    try:
+        raw_submit = json.loads('"' + raw_submit.replace('"', '') + '"')
+    except ValueError:
+        raw_submit = raw_submit.replace("\\/", "/")
+    # the submit target must belong to this suite instance's implicit path:
+    # {suite-origin}/test/a/{alias}/implicit/{id}; anything else means the
+    # callback page is not what we expect - abort
     expect = urllib.parse.urlsplit(SUITE)
     got = urllib.parse.urlsplit(rewrite(raw_submit))
     if (got.scheme, got.hostname, got.port) != (expect.scheme, expect.hostname, expect.port) \
-            or not got.path.startswith("/implicit/"):
+            or not got.path.startswith(f"/test/a/{ALIAS}/implicit/"):
         raise HarnessReplayError(f"unexpected implicit-submit target {raw_submit!r}")
     fragment = urllib.parse.urlsplit(redirect).fragment
     submit = urllib.parse.urlunsplit(got)
