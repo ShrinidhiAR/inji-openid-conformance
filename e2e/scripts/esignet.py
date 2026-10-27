@@ -23,6 +23,9 @@ def _b64u(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
 
+DEFAULT_KID = "e2e-key-1"
+
+
 def gen_client_key():
     """Generate an EC P-256 keypair; return (private_pem_str, public_jwk_dict, private_jwk_dict)."""
     key = ec.generate_private_key(ec.SECP256R1(), default_backend())
@@ -40,6 +43,7 @@ def gen_client_key():
         "y": _b64u(pub.y.to_bytes(32, "big")),
         "use": "sig",
         "alg": "ES256",
+        "kid": DEFAULT_KID,
     }
     private_jwk = dict(public_jwk)
     private_jwk["d"] = _b64u(numbers.private_value.to_bytes(32, "big"))
@@ -62,11 +66,11 @@ def _sign_es256(private_pem: str, header: dict, payload: dict) -> str:
     return f"{h}.{p}.{_b64u(sig)}"
 
 
-def client_assertion(private_pem: str, client_id: str, aud: str) -> str:
+def client_assertion(private_pem: str, client_id: str, aud: str, kid: str = DEFAULT_KID) -> str:
     now = int(time.time())
     return _sign_es256(
         private_pem,
-        {"alg": "ES256", "typ": "JWT"},
+        {"alg": "ES256", "typ": "JWT", "kid": kid},
         {"iss": client_id, "sub": client_id, "aud": aud,
          "iat": now, "exp": now + 300, "jti": str(uuid.uuid4())},
     )

@@ -152,7 +152,7 @@ def main() -> int:
         mid = r.json().get("id")
         # start = POST /api/runner/{id} (TestRunner.java @PostMapping("/runner/{id}"))
         r = suite("POST", f"/api/runner/{mid}")
-        print(f"[module] started id={mid} -> {r.status_code}")
+        print(f"[module] started id={mid} -> {r.status_code}: {r.text[:300]}")
 
         status = result = None
         deadline = time.time() + 600
@@ -186,8 +186,23 @@ def main() -> int:
             status = info.get("status")
             result = info.get("result")
             break
+        error_excerpt = None
+        if result != "PASSED":
+            # pull the module's event log for the real failure reason
+            try:
+                entries = suite("GET", f"/api/log/{mid}").json()
+                bad = []
+                for e in entries if isinstance(entries, list) else []:
+                    msg = json.dumps(e)
+                    if any(k in msg.lower() for k in ("error", "exception", "fail", "invalid")):
+                        bad.append(e.get("msg") if isinstance(e, dict) else msg)
+                error_excerpt = bad[:4] or None
+                print(f"[module] log excerpt: {json.dumps(error_excerpt)[:800]}")
+            except Exception as e:
+                print(f"[module] could not fetch log: {e}")
         print(f"[module] {name}: status={status} result={result}")
-        results.append({"module": name, "status": status, "result": result})
+        results.append({"module": name, "status": status, "result": result,
+                        "error_excerpt": error_excerpt})
 
     counts = {}
     for r0 in results:
