@@ -32,6 +32,8 @@ services:
     depends_on:
       database:
         condition: service_healthy
+    ports:
+      - "8082:8082"   # host-side debug only; e2e traffic uses service name
     networks:
       - e2e-net
 

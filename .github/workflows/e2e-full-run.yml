@@ -93,6 +93,20 @@ jobs:
           docker compose -f e2e/compose/esignet/docker-compose.yaml logs --tail=200
           exit 1
 
+      - name: Debug mock identity seed + kyc-auth directly
+        run: |
+          echo "== seeded identities =="
+          docker compose -f e2e/compose/esignet/docker-compose.yaml exec -T database             psql -U postgres -d mosip_mockidentitysystem -c "select individual_id from mockidentitysystem.mock_identity;" || true
+          echo "== direct kyc-auth v2 (password Mosip@123) =="
+          curl -s -X POST "http://localhost:8082/v1/mock-identity-system/v2/kyc-auth/e2e-rp/e2e-client"             -H "Content-Type: application/json"             -d '{"transactionId":"dbg1","individualId":"1774231323","password":"Mosip@123"}' || true
+          echo
+          echo "== direct kyc-auth v2 (pin 545411) =="
+          curl -s -X POST "http://localhost:8082/v1/mock-identity-system/v2/kyc-auth/e2e-rp/e2e-client"             -H "Content-Type: application/json"             -d '{"transactionId":"dbg2","individualId":"1774231323","pin":"545411"}' || true
+          echo
+          echo "== direct kyc-auth v2 (otp 111111) =="
+          curl -s -X POST "http://localhost:8082/v1/mock-identity-system/v2/kyc-auth/e2e-rp/e2e-client"             -H "Content-Type: application/json"             -d '{"transactionId":"dbg3","individualId":"1774231323","otp":"111111"}' || true
+          echo
+
       - name: Install Python dependencies
         run: pip install requests cryptography
 
