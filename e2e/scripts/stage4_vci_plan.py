@@ -65,7 +65,16 @@ def rewrite(url: str) -> str:
 def suite(method: str, path: str, **kw) -> requests.Response:
     kw.setdefault("headers", {}).update(SUITE_HDRS)
     kw.setdefault("timeout", 45)
-    return requests.request(method, SUITE + path, **kw)
+    # the suite's long-poll endpoints occasionally drop connections; retry
+    # transport errors instead of crashing the whole plan run
+    for attempt in range(4):
+        try:
+            return requests.request(method, SUITE + path, **kw)
+        except requests.ConnectionError as e:
+            if attempt == 3:
+                raise
+            print(f"[suite] {method} {path} connection error ({e.__class__.__name__}); retrying")
+            time.sleep(3)
 
 def drive_browser_url(es: Esignet, url: str):
     """Play the wallet user for one suite-provided authorize URL."""
@@ -186,7 +195,12 @@ def main() -> int:
                 if state not in ("WAITING", "FINISHED", "INTERRUPTED"):
                     continue
             if state == "WAITING":
-                b = suite("GET", f"/api/runner/browser/{mid}").json()
+                try:
+                    b = suite("GET", f"/api/runner/browser/{mid}").json()
+                except Exception as e:
+                    print(f"[module] browser-url fetch failed: {e}; retrying")
+                    time.sleep(5)
+                    continue
                 urls = [u for u in (b.get("urls") or []) if u not in driven]
                 if not urls:
                     continue
