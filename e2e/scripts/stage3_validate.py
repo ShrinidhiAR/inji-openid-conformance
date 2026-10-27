@@ -21,6 +21,8 @@ REDIRECT_URI = "http://localhost:18080/callback"
 es = Esignet(ESIGNET)
 
 print("== certify issuer metadata ==")
+from mdl_config import ensure_mdl_config
+mdoc_id, _issuer = ensure_mdl_config(CERTIFY)
 meta = requests.get(f"{CERTIFY}/v1/certify/.well-known/openid-credential-issuer", timeout=30)
 meta.raise_for_status()
 md = meta.json()

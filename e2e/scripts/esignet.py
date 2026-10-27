@@ -207,13 +207,18 @@ class Esignet:
 
     def exchange_code(self, code: str, client_id: str, private_pem: str, redirect_uri: str) -> dict:
         token_url = f"{self.base}/oauth2/token"
+        # private_key_jwt audience: eSignet validates aud against its OWN configured
+        # issuer URL (MOSIP_ESIGNET_HOST), not the host:port this client dialed.
+        # http://esignet:8080 is the compose service identity; using the localhost
+        # debug port here yields 401 invalid_client ("Invalid client assertion").
+        aud = "http://esignet:8080/oauth2/token"
         r = self.s.post(token_url, data={
             "grant_type": "authorization_code",
             "code": code,
             "redirect_uri": redirect_uri,
             "client_id": client_id,
             "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-            "client_assertion": client_assertion(private_pem, client_id, token_url),
+            "client_assertion": client_assertion(private_pem, client_id, aud),
         }, timeout=30)
         print(f"[esignet] token -> {r.status_code}: {r.text[:300]}")
         r.raise_for_status()

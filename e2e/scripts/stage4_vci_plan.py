@@ -84,13 +84,8 @@ def drive_browser_url(es: Esignet, url: str):
     print(f"[suite-browser] callback -> {r.status_code} location={r.headers.get('Location','')[:200]}")
 
 def main() -> int:
-    md = requests.get(f"{CERTIFY}/v1/certify/.well-known/openid-credential-issuer", timeout=30).json()
-    cred_configs = md.get("credential_configurations_supported", {})
-    mdoc_id = next((k for k, v in cred_configs.items() if v.get("format") == "mso_mdoc"), None)
-    if not mdoc_id:
-        print("::error::no mso_mdoc credential configuration advertised by certify")
-        return 1
-    issuer_url = md["credential_issuer"]
+    from mdl_config import ensure_mdl_config
+    mdoc_id, issuer_url = ensure_mdl_config(CERTIFY)
     print(f"[plan] issuer={issuer_url} credential_configuration_id={mdoc_id}")
 
     pem_path = "e2e/compose/certify/config/mdl-issuer-trust-anchor.pem"
