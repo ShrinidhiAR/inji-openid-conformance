@@ -344,7 +344,6 @@ jobs:
       - name: Write standalone smoke compose
         run: |
           mkdir -p smoke
-          cp e2e/compose/certify/certify_init.sql smoke/ 2>/dev/null || true
           cat > smoke/docker-compose.yaml <<'COMPOSE'
           services:
             certify-db:
@@ -353,7 +352,7 @@ jobs:
                 - POSTGRES_USER=postgres
                 - POSTGRES_PASSWORD=postgres
               volumes:
-                - ./certify_init.sql:/docker-entrypoint-initdb.d/certify_init.sql
+                - ./alpha_certify_init.sql:/docker-entrypoint-initdb.d/alpha_certify_init.sql
               healthcheck:
                 test: ["CMD-SHELL", "pg_isready -U postgres"]
                 interval: 5s
@@ -426,23 +425,21 @@ jobs:
       - name: Read issuer metadata and protocol surface
         run: |
           mkdir -p smoke-out
-          meta=$(curl -sf http://localhost:8099/v1/certify/.well-known/openid-credential-issuer) || meta=''
-          echo "$meta" | python3 -m json.tool | tee smoke-out/alpha-issuer-metadata.json
-          echo "=== protocol surface ==="
-          echo "$meta" | python3 - <<'PY'
-          import json, sys
-          m = json.load(sys.stdin)
-          print("credential_configurations_supported (1.0 Final):", "credential_configurations_supported" in m)
-          print("credentials_supported (draft-11):", "credentials_supported" in m)
-          print("nonce_endpoint:", m.get("nonce_endpoint", "ABSENT"))
-          print("dpop algs in metadata:", m.get("dpop_signing_alg_values_supported", "ABSENT"))
-          print("credential_endpoint:", m.get("credential_endpoint", "ABSENT"))
-          PY
+          # curl writes the raw body; the parser (unit-tested, fail-closed)
+          # owns all interpretation. HTTP 200 with a MOSIP error envelope is
+          # NOT healthy metadata and fails the step.
+          code=$(curl -s -o smoke-out/alpha-issuer-metadata.json -w '%{http_code}' \
+            http://localhost:8099/v1/certify/.well-known/openid-credential-issuer)
+          echo "metadata endpoint HTTP $code"
+          cat smoke-out/alpha-issuer-metadata.json
+          python3 smoke/read_issuer_metadata.py smoke-out/alpha-issuer-metadata.json
           echo "=== /nonce endpoint probe (alpha addition) ==="
           code=$(curl -s -o smoke-out/nonce-probe.json -w '%{http_code}' -X POST http://localhost:8099/v1/certify/nonce)
           echo "POST /v1/certify/nonce -> HTTP $code"; cat smoke-out/nonce-probe.json 2>/dev/null; echo
-          code2=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8099/v1/certify/nonce)
-          echo "GET  /v1/certify/nonce -> HTTP $code2"
+          code=$(curl -s -o smoke-out/nonce-probe-post2.json -w '%{http_code}' -X POST http://localhost:8099/v1/certify/issuance/nonce)
+          echo "POST /v1/certify/issuance/nonce -> HTTP $code"; cat smoke-out/nonce-probe-post2.json 2>/dev/null; echo
+          code2=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8099/v1/certify/issuance/.well-known/openid-credential-issuer)
+          echo "GET  /v1/certify/issuance/.well-known/openid-credential-issuer -> HTTP $code2"
 
       - name: Diagnostics
         if: always()
