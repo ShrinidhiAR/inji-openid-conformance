@@ -184,7 +184,7 @@ jobs:
   stage4-suite-vci:
     name: Stage 4 - real OIDF suite OID4VCI issuer plan vs local certify
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 45
     needs: []
     steps:
       - uses: actions/checkout@v4

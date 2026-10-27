@@ -20,7 +20,7 @@ services:
       - e2e-net
 
   certify-app:
-    image: injistack/inji-certify-with-plugins:1.0.0-alpha.1
+    image: injistack/inji-certify-with-plugins:0.14.0
     user: root
     environment:
       - container_user=mosip

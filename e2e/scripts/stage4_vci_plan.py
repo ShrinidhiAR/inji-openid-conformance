@@ -83,6 +83,9 @@ def drive_browser_url(es: Esignet, url: str):
     r = requests.get(redirect, headers=SUITE_HDRS, allow_redirects=False, timeout=45)
     print(f"[suite-browser] callback -> {r.status_code} location={r.headers.get('Location','')[:200]}")
 
+RESULTS_FILE = os.environ.get("RESULTS_FILE", "/tmp/stage4-vci-results.json")
+
+
 def main() -> int:
     from mdl_config import ensure_mdl_config
     mdoc_id, issuer_url = ensure_mdl_config(CERTIFY)
@@ -139,9 +142,20 @@ def main() -> int:
     if not module_names:
         print(f"::error::plan response carried no module names: {json.dumps(plan)[:600]}")
         return 1
-    print(f"[plan] {len(module_names)} modules to run")
+    print(f"[plan] {len(module_names)} modules in plan")
+    # bounded scope: run only selected modules (comma-separated exact names);
+    # default establishes the happy path first.
+    sel = os.environ.get("MODULES",
+        "oid4vci-1_0-issuer-metadata-test,oid4vci-1_0-issuer-happy-flow")
+    wanted = [w.strip() for w in sel.split(",") if w.strip()]
+    module_names = [m for m in module_names if m in wanted]
+    print(f"[plan] running {len(module_names)} selected modules: {module_names}")
 
     results = []
+    def flush():
+        with open(RESULTS_FILE, "w") as fh:
+            json.dump({"plan_id": plan_id, "results": results}, fh, indent=2)
+
     for name in module_names:
         print(f"\n[module] === {name} ===")
         r = suite("POST", "/api/runner", params={"test": name, "plan": plan_id})
@@ -206,6 +220,7 @@ def main() -> int:
         print(f"[module] {name}: status={status} result={result}")
         results.append({"module": name, "status": status, "result": result,
                         "error_excerpt": error_excerpt})
+        flush()  # preserve partial evidence if the job is cancelled later
 
     counts = {}
     for r0 in results:

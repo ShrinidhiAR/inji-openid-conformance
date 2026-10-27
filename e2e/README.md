@@ -73,10 +73,20 @@ its admin API, then runs the OID4VCI flow end to end: eSignet login, token,
 nonce, credential request with a wallet key proof, and verifies the returned
 mDoc.
 
-KNOWN OPEN ISSUE: as of the latest run the token step succeeds but
-`GET /v1/certify/nonce` and the credential endpoint answer 401 despite a
-valid token whose signing key matches Certify's configured JWKS. Diagnosis is
-in progress on this branch (see the stage 3 CI logs).
+KNOWN ISSUE (verified version-pair incompatibility): eSignet 2.0.0 issues
+RFC 9068 access tokens (`typ: at+jwt`). Inji Certify 0.14.0 (Spring Boot
+3.2.3) rejects them: `GET /v1/certify/nonce` answers 401 with
+`WWW-Authenticate: error="invalid_token", error_description="... JOSE header
+typ (type) at+jwt not allowed"`. The token signature itself verifies against
+eSignet's JWKS. The only other official image,
+`injistack/inji-certify-with-plugins:1.0.0-alpha.1` (alpha, not certifiable),
+does not boot with the published 0.14-era configuration: it embeds
+verify-service 0.18.2 (interactive authorization requests) and fails with
+`UnsatisfiedDependencyException` on `p12KeyExtractor` (needs new keystore
+wiring that is not yet documented upstream). So with unmodified official
+images, the issuance leg currently stops at token acceptance; stage 4 records
+this as genuine per-module failures from the official suite, not harness
+errors.
 
 ## Stage 4 - real OIDF suite vs local Certify
 
