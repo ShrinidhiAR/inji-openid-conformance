@@ -1,0 +1,73 @@
+# Vendored from mosip/esignet docker-compose (esignet 2.0.0), adapted for the e2e
+# conformance stack: all services join the shared external "e2e-net" network and
+# eSignet's public host is its internal service name so that issuer URLs are
+# consistent for every container on the network.
+# Upstream: https://github.com/mosip/esignet/tree/master/docker-compose
+services:
+  database:
+    image: 'postgres:bookworm'
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - e2e-net
+
+  mock-identity-system:
+    image: 'mosipid/mock-identity-system:0.14.0'
+    user: root
+    environment:
+      - container_user=mosip
+      - active_profile_env=default,local
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://database:5432/mosip_mockidentitysystem?currentSchema=mockidentitysystem
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
+      - MOSIP_ESIGNET_HOST=esignet:8080
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - e2e-net
+
+  esignet:
+    image: 'mosipid/esignet:2.0.0'
+    user: root
+    environment:
+      - container_user=mosip
+      - PORT=8080
+      - DATABASE_HOST=database
+      - DATABASE_PORT=5432
+      - DATABASE_USERNAME=postgres
+      - DATABASE_PASSWORD=postgres
+      - KEYMANAGER_KEYSTORE_TYPE=PKCS12
+      - KEYMANAGER_DB_SCHEMA=esignet
+      - KEYMANAGER_PKCS12_FILE_PATH=/opt/mosip/test.pfx
+      - KEYMANAGER_PKCS12_PASSWORD=localtest
+      - KEYMANAGER_PKCS12_ALLOW_INSECURE_SOFTWARE_KEYSTORE=true
+      - MOSIP_ESIGNET_CACHE_TYPE=inmemory
+      # Public issuer host = internal service name; every e2e container resolves it.
+      - MOSIP_ESIGNET_HOST=http://esignet:8080
+      - MOSIP_ESIGNET_OIDC_UI_HOSTNAME=localhost
+      - MOSIP_ESIGNET_CAPTCHA_SITE_PROVIDER=hcaptcha
+      - MOSIP_ESIGNET_CAPTCHA_SITE_KEY=10000000-ffff-ffff-ffff-000000000001
+      - MOSIP_ESIGNET_AUTHN_PROVIDER=mock
+      - MOSIP_ESIGNET_MOCK_DOMAIN_URL=http://mock-identity-system:8082
+    depends_on:
+      database:
+        condition: service_healthy
+      mock-identity-system:
+        condition: service_started
+    ports:
+      - "8090:8080"   # host-side debug only; e2e traffic uses service name
+    networks:
+      - e2e-net
+
+networks:
+  e2e-net:
+    external: true

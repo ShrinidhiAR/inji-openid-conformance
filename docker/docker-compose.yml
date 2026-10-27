@@ -1,7 +1,16 @@
 version: '3.8'
 
+# Conformance suite stack. The published suite image
+# (registry.gitlab.com/openid/conformance-suite) is configured via MONGODB_HOST
+# and BASE_URL (see the image Dockerfile): it connects to
+# mongodb://$MONGODB_HOST:27017/test_suite and serves plain HTTP on port 8080.
+# An earlier revision of this file set spring.data.mongodb.uri and named the
+# service "mongo"; the image ignored that and failed to boot
+# (UnknownHostException: mongodb). Do not rename the service without updating
+# MONGODB_HOST.
+
 services:
-  mongo:
+  mongodb:
     image: mongo:6.0
     container_name: conformance-mongo
     ports:
@@ -16,17 +25,13 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - spring.data.mongodb.uri=mongodb://mongo:27017/conformance
-      - SPRING_PROFILES_ACTIVE=dev
-      - FINTECH_DEV_MODE=true
-      - oauth.clients.gitlab.client-id=dummy-client-id
-      - oauth.clients.gitlab.client-secret=dummy-client-secret
-      - oauth.clients.google.client-id=dummy-client-id
-      - oauth.clients.google.client-secret=dummy-client-secret
-      - oauth.clients.github.client-id=dummy-client-id
-      - oauth.clients.github.client-secret=dummy-client-secret
+      - MONGODB_HOST=mongodb
+      # External URL the suite uses to build callback/redirect URLs. For local
+      # runs this is the host-reachable address; the e2e stack overrides it.
+      - BASE_URL=http://localhost:8080
+      - JAVA_EXTRA_ARGS=-Dfintechlabs.devmode=true
     depends_on:
-      - mongo
+      - mongodb
     restart: unless-stopped
 
 volumes:
