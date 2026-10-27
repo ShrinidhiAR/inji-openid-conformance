@@ -242,7 +242,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: stage4-vci-results
-          path: /tmp/stage4-vci-results.json
+          path: |
+            /tmp/stage4-vci-results.json
+            /tmp/suite-callback-page.html
           if-no-files-found: warn
 
       - name: Stack logs on failure

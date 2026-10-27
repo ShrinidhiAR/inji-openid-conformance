@@ -77,6 +77,10 @@ def suite(method: str, path: str, **kw) -> requests.Response:
             print(f"[suite] {method} {path} connection error ({e.__class__.__name__}); retrying")
             time.sleep(3)
 
+class HarnessReplayError(RuntimeError):
+    """The driver failed to replay a suite browser step - harness, not product."""
+
+
 def drive_browser_url(es: Esignet, url: str):
     """Play the wallet user for one suite-provided authorize URL."""
     url = rewrite(url)
@@ -92,6 +96,10 @@ def drive_browser_url(es: Esignet, url: str):
     # following the redirect hands the code to the suite's callback
     r = requests.get(redirect, headers=SUITE_HDRS, allow_redirects=False, timeout=45)
     print(f"[suite-browser] callback -> {r.status_code} location={r.headers.get('Location','')[:200]}")
+    # always preserve the actual rendered callback page as artifact evidence
+    with open(CALLBACK_HTML_FILE, "w") as fh:
+        fh.write(r.text)
+    print(f"[suite-browser] callback page saved ({len(r.text)} bytes) -> {CALLBACK_HTML_FILE}")
     # The suite answers the callback with its implicitCallback page: browser JS
     # is expected to POST window.location.hash (empty for query-mode responses)
     # back to a random /implicit/{id} URL (AbstractRedirectServerTestModule).
@@ -99,26 +107,30 @@ def drive_browser_url(es: Esignet, url: str):
     # thymeleaf javascript-inlines the URL as a double-quoted JS string literal;
     # accept either quote style
     m = re.search("xhr\\.open\\('POST',\\s*['\"]([^'\"]+)", r.text)
-    if m:
-        raw_submit = m.group(1)
-        # the submit target must belong to this suite instance's /implicit/ path;
-        # anything else means the callback page is not what we expect - abort
-        expect = urllib.parse.urlsplit(SUITE)
-        got = urllib.parse.urlsplit(rewrite(raw_submit))
-        if (got.scheme, got.hostname, got.port) != (expect.scheme, expect.hostname, expect.port) \
-                or not got.path.startswith("/implicit/"):
-            print(f"[suite-browser] FAIL: unexpected implicit-submit target {raw_submit!r}")
-            return
-        fragment = urllib.parse.urlsplit(redirect).fragment
-        submit = urllib.parse.urlunsplit(got)
-        rs = requests.post(submit, data=fragment,
-                           headers={**SUITE_HDRS, "Content-Type": "text/plain"},
-                           timeout=45)
-        print(f"[suite-browser] implicit submit ({submit.rsplit('/',1)[-1]}) -> {rs.status_code} {rs.text[:150]}")
-    else:
-        print("[suite-browser] WARNING: no implicit-submit URL found in callback page")
+    if not m:
+        raise HarnessReplayError(
+            "no implicit-submit URL parsed from the rendered callback page "
+            f"(saved to {CALLBACK_HTML_FILE}) - aborting promptly instead of "
+            "letting the module park")
+    raw_submit = m.group(1)
+    # the submit target must belong to this suite instance's /implicit/ path;
+    # anything else means the callback page is not what we expect - abort
+    expect = urllib.parse.urlsplit(SUITE)
+    got = urllib.parse.urlsplit(rewrite(raw_submit))
+    if (got.scheme, got.hostname, got.port) != (expect.scheme, expect.hostname, expect.port) \
+            or not got.path.startswith("/implicit/"):
+        raise HarnessReplayError(f"unexpected implicit-submit target {raw_submit!r}")
+    fragment = urllib.parse.urlsplit(redirect).fragment
+    submit = urllib.parse.urlunsplit(got)
+    rs = requests.post(submit, data=fragment,
+                       headers={**SUITE_HDRS, "Content-Type": "text/plain"},
+                       timeout=45)
+    print(f"[suite-browser] implicit submit ({submit.rsplit('/',1)[-1]}) -> {rs.status_code} {rs.text[:150]}")
+    if not 200 <= rs.status_code < 300:
+        raise HarnessReplayError(f"suite rejected implicit submit: {rs.status_code} {rs.text[:200]}")
 
 RESULTS_FILE = os.environ.get("RESULTS_FILE", "/tmp/stage4-vci-results.json")
+CALLBACK_HTML_FILE = os.environ.get("CALLBACK_HTML_FILE", "/tmp/suite-callback-page.html")
 
 
 def main() -> int:
@@ -234,6 +246,12 @@ def main() -> int:
                 driven.add(url)
                 try:
                     drive_browser_url(es, url)
+                except HarnessReplayError as e:
+                    # driver defect, not a product verdict: record distinctly
+                    # and stop promptly instead of waiting out the deadline
+                    print(f"[module] HARNESS REPLAY FAILURE: {e}")
+                    status, result = "HARNESS_INCOMPLETE", None
+                    break
                 except Exception as e:
                     print(f"[module] browser drive failed: {e}")
                     # the suite decides what a dead front-channel means
@@ -243,6 +261,11 @@ def main() -> int:
             status = info.get("status")
             result = info.get("result")
             break
+        else:
+            # deadline expired with no terminal state: harness-incomplete,
+            # never to be read as a product outcome
+            print(f"[module] deadline expired without terminal state for {name}")
+            status, result = "HARNESS_TIMEOUT", None
         error_excerpt = None
         if result != "PASSED":
             # pull the module's event log for the real failure reason
@@ -288,9 +311,17 @@ def main() -> int:
     with open("/tmp/stage4-vci-results.json", "w") as f:
         json.dump(out, f, indent=2)
     print(f"\n[summary] {json.dumps(counts)}")
+    harness_bad = [r0 for r0 in results
+                   if r0["status"] in ("HARNESS_INCOMPLETE", "HARNESS_TIMEOUT", "HARNESS_ERROR")]
     for r0 in results:
-        if r0["result"] != "PASSED":
+        if r0["status"] in ("HARNESS_INCOMPLETE", "HARNESS_TIMEOUT", "HARNESS_ERROR"):
+            print(f"::error::harness-incomplete: {r0['module']}: {r0['status']}")
+        elif r0["result"] != "PASSED":
             print(f"::warning::{r0['module']}: {r0['status']}/{r0['result']}")
+    if harness_bad:
+        print(f"[summary] {len(harness_bad)} module(s) harness-incomplete; exiting nonzero "
+              "so green never masks an incomplete run")
+        return 2
     return 0
 
 if __name__ == "__main__":
