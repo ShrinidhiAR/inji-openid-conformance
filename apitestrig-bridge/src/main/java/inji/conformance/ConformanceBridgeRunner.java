@@ -38,8 +38,9 @@ public final class ConformanceBridgeRunner {
 
     private static final String BENCHMARK_POLICY_TEXT = "project policy (the problem statement requires "
             + "benchmark gating but defines no numeric benchmark): every executed conformance module must "
-            + "report PASSED to satisfy the benchmark; WARNING counts as a pass only when "
-            + "benchmark.allowWarnings=true and is flagged for manual review; FAILED, REVIEW, missing or "
+            + "pass. By default a module passes with result PASSED, or with result WARNING while "
+            + "benchmark.allowWarnings=true (flagged in the report for manual review); with "
+            + "benchmark.allowWarnings=false only a literal PASSED passes. FAILED, REVIEW, missing or "
             + "unknown results, and an empty result set, fail the gate.";
 
     private ConformanceBridgeRunner() {

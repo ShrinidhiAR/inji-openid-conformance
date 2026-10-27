@@ -297,12 +297,17 @@ plus `gate-summary.json`).
 The problem statement requires benchmark gating but states no numeric benchmark,
 so the gate is a configurable project policy, fail-closed by default:
 
-* every executed module must report `PASSED`;
-* `WARNING` counts as a pass only while `benchmark.allowWarnings=true` (the
-  default) and is flagged in the report for manual review; set
-  `-Dbenchmark.allowWarnings=false` to make warnings fail;
+* every executed module must pass. By default a module passes with result
+  `PASSED`, or with result `WARNING` while `benchmark.allowWarnings=true` (the
+  default), in which case it is flagged in the report for manual review; set
+  `-Dbenchmark.allowWarnings=false` to require a literal `PASSED`;
 * `FAILED`, `REVIEW`, missing or unknown results, and an empty result set, fail
-  the gate;
+  the gate. A missing results file also fails the gate;
+* the gate judges only what is in the results file: the runner writes the file
+  once, after every module of the created plan has finished, so a partial run
+  leaves no file and fails closed. It cannot verify that the suite's plan itself
+  contained every official module, and a stale results file from an older run is
+  not detected;
 * `--min-pass-rate N` (0-100, default 100) overrides the pass-rate threshold.
 
 ### Two run modes (per the problem statement)
