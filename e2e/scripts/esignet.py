@@ -74,7 +74,8 @@ class Esignet:
     def register_client(self, client_id: str, redirect_uris, public_jwk: dict,
                         acrs=("mosip:idp:acr:password", "mosip:idp:acr:static-code",
                               "mosip:idp:acr:generated-code"),
-                        method: str = "POST"):
+                        method: str = "POST",
+                        additional_config: dict = None):
         """POST (create) or PUT (update) /client-mgmt/oidc-client."""
         body = {
             "requestTime": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
@@ -89,6 +90,10 @@ class Esignet:
                 "userClaims": ["name", "email", "picture", "gender", "birthdate"],
                 "grantTypes": ["authorization_code"],
                 "clientAuthMethods": ["private_key_jwt"],
+                # eSignet 2.0 (clientmgmt/validate.go): optional per-client flags.
+                # {"dpop_bound_access_tokens": true} opts the client into DPoP,
+                # which the OIDF suite's sender_constrain=dpop variant requires.
+                "additionalConfig": additional_config or {},
             },
         }
         url = f"{self.base}/client-mgmt/oidc-client"

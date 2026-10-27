@@ -171,3 +171,60 @@ jobs:
         run: |
           docker compose -f e2e/compose/esignet/docker-compose.yaml logs --tail=150
           docker compose -f e2e/compose/certify/docker-compose.yaml logs --tail=250
+
+  stage4-suite-vci:
+    name: Stage 4 - real OIDF suite OID4VCI issuer plan vs local certify
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    needs: []
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate mDL issuer key-cert
+        run: e2e/scripts/gen-mdl-issuer-keycert.sh
+
+      - name: Create shared e2e network
+        run: docker network create e2e-net || true
+
+      - name: Start eSignet, certify and suite stacks
+        run: |
+          docker compose -f e2e/compose/esignet/docker-compose.yaml up -d
+          docker compose -f e2e/compose/certify/docker-compose.yaml up -d
+          docker compose -f e2e/compose/suite/docker-compose.yml up -d
+
+      - name: Wait for eSignet, certify and the suite
+        run: |
+          for i in $(seq 1 150); do
+            E=0; C=0; S=0
+            curl -sf http://localhost:8090/.well-known/openid-configuration > /dev/null 2>&1 && E=1
+            curl -sf http://localhost:8088/v1/certify/.well-known/openid-credential-issuer > /dev/null 2>&1 && C=1
+            curl -sf -H "X-Forwarded-Proto: https" http://localhost:8080/api/plan > /dev/null 2>&1 && S=1
+            if [ "$E" = 1 ] && [ "$C" = 1 ] && [ "$S" = 1 ]; then echo "all up after $((i*5))s"; exit 0; fi
+            sleep 5
+          done
+          echo "::error::stack did not come up"
+          docker compose -f e2e/compose/esignet/docker-compose.yaml logs --tail=100
+          docker compose -f e2e/compose/certify/docker-compose.yaml logs --tail=200
+          docker compose -f e2e/compose/suite/docker-compose.yml logs --tail=100 suite-server
+          exit 1
+
+      - name: Install Python dependencies
+        run: pip install requests cryptography
+
+      - name: Run the OIDF OID4VCI issuer test plan
+        run: python e2e/scripts/stage4_vci_plan.py
+
+      - name: Upload per-module results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage4-vci-results
+          path: /tmp/stage4-vci-results.json
+          if-no-files-found: warn
+
+      - name: Stack logs on failure
+        if: failure()
+        run: |
+          docker compose -f e2e/compose/esignet/docker-compose.yaml logs --tail=150
+          docker compose -f e2e/compose/certify/docker-compose.yaml logs --tail=250
+          docker compose -f e2e/compose/suite/docker-compose.yml logs --tail=200 suite-server
