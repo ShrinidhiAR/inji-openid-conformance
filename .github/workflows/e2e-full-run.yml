@@ -123,6 +123,10 @@ jobs:
       - name: Scripted authorization-code flow against local eSignet
         run: python e2e/scripts/stage2_validate.py
 
+      - name: Token-endpoint probe matrix (diagnostic)
+        if: always()
+        run: python e2e/scripts/stage2_probe_token.py || true
+
       - name: eSignet logs on failure
         if: failure()
         run: docker compose -f e2e/compose/esignet/docker-compose.yaml logs --tail=300
