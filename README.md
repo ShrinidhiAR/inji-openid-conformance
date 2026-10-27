@@ -13,11 +13,12 @@ Automated local execution and CI/CD pipeline integration for MOSIP Inji Certify 
 8. [Configuration](#configuration)
 9. [API reference (conformance suite endpoints used)](#api-reference-conformance-suite-endpoints-used)
 10. [Output format](#output-format)
-11. [TestNG results bridge](#testng-results-bridge)
-12. [Test cases](#test-cases)
-13. [Test data](#test-data)
-14. [Troubleshooting](#troubleshooting)
-15. [Known limitations](#known-limitations)
+11. [api-testrig integration (TestNG + MOSIP report)](#api-testrig-integration-testng--mosips-report)
+12. [CI/CD](#cicd)
+13. [Test cases](#test-cases)
+14. [Test data](#test-data)
+15. [Troubleshooting](#troubleshooting)
+16. [Known limitations](#known-limitations)
 
 ## Overview
 
@@ -67,9 +68,16 @@ inji-openid-conformance/
 │   ├── architecture.png                      # Architecture diagram
 │   ├── architecture.pptx                     # Editable diagram source
 │   └── sample-output/                        # Illustrative bridge input/output
+├── apitestrig-bridge/                        # Java/TestNG bridge into api-testrig reporting (see below)
+│   ├── pom.xml
+│   └── src/main/...
+├── rig-integration/
+│   └── README.md                             # Drop-in steps for inji-certify/api-test and inji-verify/api-test
 ├── scripts/
 │   ├── conformance_runner.py                 # REST API driver
-│   └── testng_bridge.py                      # JSON results -> TestNG-style XML
+│   └── testng_bridge.py                      # JSON results -> TestNG-style XML (standalone export)
+├── ci/
+│   └── conformance-ci.yml                    # GitHub Actions workflow (move to .github/workflows/ to activate)
 ├── .gitignore
 └── README.md
 ```
@@ -77,6 +85,7 @@ inji-openid-conformance/
 ## Prerequisites
 
 * Docker Desktop (with WSL2 Mirrored Mode enabled on Windows)
+* For the api-testrig bridge only: JDK 21 and Maven 3.8+
 * Python 3.14+ with `requests`
 * Free local ports `8080` (conformance suite) and `27017` (MongoDB)
 * Enough memory for several containers: 8 GB RAM minimum, 16 GB comfortable
@@ -95,7 +104,14 @@ inji-openid-conformance/
    ```
 
 3. **Output Artifact:**
-   Test results are automatically exported to `conformance-results.json` for integration into TestNG / ExtentReports test rigs.
+   Test results are automatically exported to `conformance-results.json`.
+
+4. **Feed the results into the api-testrig report and gate the build:**
+   ```powershell
+   cd apitestrig-bridge
+   mvn compile exec:java -Dexec.args="--component certify --results ../conformance-results.json"
+   ```
+   See [api-testrig integration](#api-testrig-integration-testng--mosips-report).
 
 ## Installation and setup (step by step)
 
@@ -246,9 +262,76 @@ For the full API, see the OpenID Conformance Suite documentation.
 
 Only the components you ran appear. The values above are placeholders showing the structure, not real results. The file is git-ignored.
 
-## TestNG results bridge
+## api-testrig integration (TestNG + MOSIP's report)
 
-`scripts/testng_bridge.py` converts the runner's `conformance-results.json` into TestNG-style results XML, so the results can be read by tools that consume TestNG / JUnit-style reports (for example Jenkins).
+`apitestrig-bridge/` is a small Java 21 / Maven project that turns the runner's
+`conformance-results.json` into real TestNG results inside MOSIP's reporting path,
+instead of only exporting an XML file:
+
+* `inji.conformance.ConformanceResultsTest` emits one TestNG test per conformance
+  module, carrying a `TestCaseDTO` exactly like the rig's own yml-driven tests, so
+  module names and conformance-suite test ids land in the same columns of the same
+  report the Inji api-test rigs produce.
+* The suite XMLs register `io.mosip.testrig.apirig.report.EmailableReport` from
+  `io.mosip.testrig.apitest.commons:apitest-commons:1.4.0` (Maven Central) - the
+  same listener the Inji rigs register in their master suites - so the output is
+  the standard api-testrig HTML report, including its S3/MinIO upload path when
+  that is configured.
+* `inji.conformance.ConformanceBridgeRunner` runs a suite (certify, verify or
+  combined) and gates the build on a benchmark: exit code 0 only when the
+  benchmark is met.
+
+Run it after the runner has produced results:
+
+```powershell
+python scripts/conformance_runner.py --component certify
+cd apitestrig-bridge
+mvn compile exec:java -Dexec.args="--component certify --results ../conformance-results.json"
+```
+
+Reports land in `apitestrig-bridge/testng-report/` (full and error HTML reports
+plus `gate-summary.json`).
+
+### Benchmark gate
+
+The problem statement requires benchmark gating but states no numeric benchmark,
+so the gate is a configurable project policy, fail-closed by default:
+
+* every executed module must report `PASSED`;
+* `WARNING` counts as a pass only while `benchmark.allowWarnings=true` (the
+  default) and is flagged in the report for manual review; set
+  `-Dbenchmark.allowWarnings=false` to make warnings fail;
+* `FAILED`, `REVIEW`, missing or unknown results, and an empty result set, fail
+  the gate;
+* `--min-pass-rate N` (0-100, default 100) overrides the pass-rate threshold.
+
+### Two run modes (per the problem statement)
+
+* **Per-module (default):** drop the test class and suite file into
+  `inji-certify/api-test` or `inji-verify/api-test` so the conformance results run
+  inside that module's own rig and report. Step-by-step:
+  [`rig-integration/README.md`](rig-integration/README.md).
+* **Combined:** run both components in one suite here with
+  `--component combined`.
+
+### Verification status
+
+* **Verified by us:** the bridge compiles and runs on JDK 21 with apitest-commons
+  1.4.0; `EmailableReport` generates the standard api-testrig report from our
+  TestNG results; the gate passes on passing data and fails the build on failing
+  and on empty data. CI re-runs these checks on every push using fixture data
+  (clearly labelled as fixtures, not live conformance).
+* **Not run by us:** execution inside the full `InjiTestRunner` (it needs a MOSIP
+  environment with Keycloak/PMS), the S3/MinIO upload (needs MOSIP's S3
+  configuration), and a live conformance run against real Inji Certify / Inji
+  Verify instances. `EmailableReport` needs an `env.endpoint` system property as a
+  report label; the bridge runner sets a placeholder one.
+
+### Standalone XML export
+
+`scripts/testng_bridge.py` remains as a lightweight converter from
+`conformance-results.json` to TestNG/JUnit-style XML for tools that consume those
+reports (for example Jenkins):
 
 ```powershell
 python scripts/conformance_runner.py --combined
@@ -261,26 +344,43 @@ Options:
 |---|---|---|
 | `--input` | Runner output JSON | `conformance-results.json` |
 | `--output` | XML file to write | `testng-results.xml` |
-| `--format junit` | `<testsuites><testsuite><testcase>` layout (what TestNG writes for JUnit-compatible tools) | default |
+| `--format junit` | `<testsuites><testsuite><testcase>` layout | default |
 | `--format testng` | Native `<testng-results><suite><test><class><test-method>` layout | |
 | `--strict-warnings` | Treat `WARNING` results as failures | off |
 
-Mapping: one suite per component (`certify`, `verify`), class name `inji.<component>.conformance`, test name = suite module name.
+Mapping: one suite per component (`certify`, `verify`), class name
+`inji.<component>.conformance`, test name = suite module name. `PASSED` passes,
+`WARNING` passes with a note (fails with `--strict-warnings`), `FAILED` fails,
+anything else is marked skipped. The runner does not record durations, so all time
+values are `0`.
 
-| Conformance result | Test outcome |
-|---|---|
-| `PASSED` | passed |
-| `WARNING` | passed, with a warning note (failed with `--strict-warnings`) |
-| `FAILED` | failed |
-| anything else (no result, `REVIEW`, ...) | skipped |
+`docs/sample-output/` holds an **illustrative** input and the XML the bridge
+produced from it. The module names and results in that sample are made up to show
+the mapping. They are not results of a real conformance run. The XML export parses
+correctly; unlike the Java bridge above it is not wired into the api-testrig's own
+reporting.
 
-The runner does not record durations, so all time values are `0`.
+## CI/CD
 
-`docs/sample-output/` holds an **illustrative** input and the XML the bridge produced from it. The module names and results in that sample are made up to show the mapping. They are not results of a real conformance run.
+`ci/conformance-ci.yml` is a ready GitHub Actions workflow with two jobs. To
+activate it, move it to `.github/workflows/conformance-ci.yml` (one rename in the
+GitHub web UI works - no local tooling needed). It is stored outside
+`.github/workflows/` in this repo because the access token used to publish these
+commits does not have GitHub's `workflow` scope, which pushing an active workflow
+file requires. The two jobs:
 
-Status: the bridge was run on that sample and its XML output parses correctly.
-
-How this relates to MOSIP's api-testrig (checked against the public source, not run): the Inji test rigs ([inji-certify/api-test](https://github.com/inji/inji-certify/tree/master/api-test), [inji-verify/api-test](https://github.com/inji/inji-verify/tree/master/api-test)) are Java REST Assured + TestNG projects. Their `InjiTestRunner` starts TestNG itself from suite files in `testNgXmlFiles/`, writes to `testng-report/`, and builds its HTML report in-process with a TestNG reporter (`EmailableReport` in [mosip-functional-tests/apitest-commons](https://github.com/mosip/mosip-functional-tests/tree/master/apitest-commons)). We found no code in the rig that imports an external results XML file. So this bridge's XML is a standard, tool-readable export of our results. It is not a drop-in input to the rig. Feeding conformance results into the rig itself would need Java-side work (for example a TestNG test class that runs or reads the conformance results), plus the rig's report upload (apitest-commons has an `S3Adapter`) and benchmark gating. That is future work.
+* **Harness checks (every push and PR):** compiles the Python and Java code, runs
+  the standalone XML bridge on the illustrative sample, and proves the benchmark
+  gate passes on an all-pass fixture and fails the build on failing and on empty
+  fixtures. These checks use fixture data only; a green run means the harness and
+  the gate work, not that any live Inji component passed conformance.
+* **Live conformance (manual dispatch):** starts the conformance suite with Docker
+  Compose, points the plan configs at reachable Inji Certify / Inji Verify
+  endpoints (set the repository variables `INJI_CERTIFY_URL` and
+  `INJI_VERIFY_URL`), runs the runner, then gates the build through the
+  api-testrig bridge. With no reachable endpoints the gate fails closed by
+  design, so a misconfigured run can never look like a pass. No credentials are
+  stored in this repository; endpoints are GitHub repository variables.
 
 ## Test cases
 
@@ -329,5 +429,5 @@ All values are placeholders for local testing and are not real credentials:
 
 * The runner polls each test with no overall time limit. A module that waits for a manual step (for example a wallet action in the suite UI) will keep the runner waiting until the step is done in the UI at <http://localhost:8080>.
 * The compose file starts only the conformance suite and MongoDB. Inji Certify and Inji Verify must be started separately.
-* The TestNG bridge only converts results to XML. It is not wired into MOSIP's Java api-testrig, which runs TestNG itself and does not read an external results file (see the TestNG results bridge section). Java-side integration, report upload to MinIO/S3 and benchmark gating are future work.
+* The api-testrig bridge is implemented and verified on fixture data only. Running it inside the full `InjiTestRunner`, uploading the report to MOSIP's MinIO/S3, and live conformance against real Inji Certify / Inji Verify instances are implemented and documented but have not been executed by us (they need a MOSIP environment and running Inji services). See the verification status in the api-testrig integration section.
 * The `latest` tag of the suite image is not pinned, so behavior can change when the image is updated.
