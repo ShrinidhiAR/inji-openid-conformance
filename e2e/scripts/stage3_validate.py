@@ -39,8 +39,11 @@ print(f"using credential configuration {mdoc_id} with scope {scope}")
 private_pem, public_jwk, _ = gen_client_key()
 es.register_client(CLIENT_ID, [REDIRECT_URI], public_jwk)
 
+# eSignet OIDCScopeValidator: a credential scope must be requested ALONE -
+# combining it with openid/authorize scopes fails bean validation with
+# "request.scope: invalid_scope" (observed in run 40527851283 stage 3).
 redirect, code = es.authorization_code_flow(
-    CLIENT_ID, REDIRECT_URI, scope=f"openid {scope}")
+    CLIENT_ID, REDIRECT_URI, scope=scope)
 print(f"== code == {code[:12]}...")
 
 tokens = es.exchange_code(code, CLIENT_ID, private_pem, REDIRECT_URI)
