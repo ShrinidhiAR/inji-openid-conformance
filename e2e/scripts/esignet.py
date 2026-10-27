@@ -210,11 +210,11 @@ class Esignet:
 
     def exchange_code(self, code: str, client_id: str, private_pem: str, redirect_uri: str) -> dict:
         token_url = f"{self.base}/oauth2/token"
-        # private_key_jwt audience: eSignet validates aud against its OWN configured
-        # issuer URL (MOSIP_ESIGNET_HOST), not the host:port this client dialed.
-        # http://esignet:8080 is the compose service identity; using the localhost
-        # debug port here yields 401 invalid_client ("Invalid client assertion").
-        aud = "http://esignet:8080/oauth2/token"
+        # private_key_jwt audience: esignet 2.0 sets its expected JWT audience to
+        # the configured issuer itself (esignet-service internal/config/app.go:
+        # cfg.JWT.Audience = cfg.Issuer), not the token endpoint path and not the
+        # host:port this client dialed. Using either yields 401 invalid_client.
+        aud = "http://esignet:8080"
         r = self.s.post(token_url, data={
             "grant_type": "authorization_code",
             "code": code,
