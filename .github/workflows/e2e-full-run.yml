@@ -19,6 +19,12 @@ on:
         default: "both"
         type: choice
         options: [both, certify, verify]
+      script_path:
+        description: "native-combined only: phased (default, prepare and run as separate script phases) | all (the script's single default-all command, prepare through audit)"
+        required: false
+        default: "phased"
+        type: choice
+        options: [phased, all]
 
 # experimental branch: only the newest push's run matters
 concurrency:
@@ -480,7 +486,7 @@ jobs:
           python3 -m unittest discover -s rig-integration/tests -p 'test_*.py' -v
           (cd smoke/alpha-suite && python3 -m unittest -v test_preparation test_transport)
       - name: Prepare through the one-command script (pinned native source, compile, MinIO build and acceptance)
-        if: github.event.inputs.native_component != 'certify'
+        if: github.event.inputs.native_component != 'certify' && github.event.inputs.script_path != 'all'
         env:
           CONFORMANCE_WORK: /tmp/conformance-work
           NATIVE_COMPONENT: ${{ github.event.inputs.native_component }}
@@ -494,13 +500,18 @@ jobs:
           CONFORMANCE_REVIEW_DIR: ${{ runner.temp }}/review-request
           CONFORMANCE_WORK: /tmp/conformance-work
           NATIVE_COMPONENT: ${{ github.event.inputs.native_component }}
+          SCRIPT_PATH: ${{ github.event.inputs.script_path }}
         run: |
           case "${NATIVE_COMPONENT:-both}" in both) export SEL="--combined";; certify|verify) export SEL="--component $NATIVE_COMPONENT";; *) echo unsupported selection; exit 2;; esac
+          case "${SCRIPT_PATH:-phased}" in phased|all) ;; *) echo unsupported script path; exit 2;; esac
           rm -f "$RUNNER_TEMP/combined.exit"
           # Certify-only runs the script's default all path (prepare, run, cleanup, audit in one command); otherwise prepare ran above.
-          if [ "${NATIVE_COMPONENT:-both}" = certify ]; then export PH=""; else export PH="--phase run"; fi
+          # Single default-all command when Certify-only or when script_path=all; otherwise prepare ran above and only the run phase starts here.
+          if [ "${NATIVE_COMPONENT:-both}" = certify ] || [ "${SCRIPT_PATH:-phased}" = all ]; then export PH=""; else export PH="--phase run"; fi
+          # Default-all also spends about 5-6 minutes on prepare inside the attempt, so a review-capable attempt gets a longer budget.
+          if [ "${NATIVE_COMPONENT:-both}" != certify ] && [ "${SCRIPT_PATH:-phased}" = all ]; then BUDGET=2100; else BUDGET=1500; fi
           setsid bash -c './run-full-stack-conformance.sh $SEL --approve-runtime $PH > "$RUNNER_TEMP/combined.private.log" 2>&1; echo $? > "$RUNNER_TEMP/combined.exit"' > /dev/null 2>&1 < /dev/null &
-          python3 rig-integration/review_gate.py start --pid "$!" --pid-file "$RUNNER_TEMP/combined.pid" --deadline-file "$RUNNER_TEMP/combined.deadline" --budget 1500
+          python3 rig-integration/review_gate.py start --pid "$!" --pid-file "$RUNNER_TEMP/combined.pid" --deadline-file "$RUNNER_TEMP/combined.deadline" --budget "$BUDGET"
       - name: Wait for the review request or the attempt ending
         id: pending
         run: python3 rig-integration/review_gate.py wait-pending --dir "$RUNNER_TEMP/review-request" --exit-file "$RUNNER_TEMP/combined.exit" --deadline-file "$RUNNER_TEMP/combined.deadline"

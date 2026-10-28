@@ -38,7 +38,10 @@ case "$(realpath -m "${TMPDIR:-/tmp}")" in /tmp|/tmp/*) ;; *) echo "refusing: TM
 mkdir -p "$work"
 cp_arg(){ echo "$work/native-$1-rig/target/classes:$(cat "$work/native-$1-classpath")"; }
 status=0
-prepare(){
+# Review-window settings and the repository token belong to the run phase only (run_combined pops the token before anything else starts).
+# The prepare phase runs git, Maven, Go, MinIO and its acceptance test, so none of them may inherit these.
+prepare(){ ( unset GITHUB_TOKEN CONFORMANCE_REVIEW_WINDOW CONFORMANCE_REVIEW_DIR; prepare_steps ); }
+prepare_steps(){
   : "${JAVA_HOME:?JAVA_HOME (Java 21 or per workflow) required}"
   local c
   for c in $comps; do
