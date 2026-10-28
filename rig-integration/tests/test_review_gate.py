@@ -42,3 +42,23 @@ class T(unittest.TestCase):
     self.assertIsNotNone(proc.wait(timeout=5))
    finally:
     if proc.poll() is None:proc.kill()
+
+class LongBudget(unittest.TestCase):
+ def test_budget_2100_is_honoured_by_the_real_helper_with_default_timeout(self):
+  # remaining() is min(timeout, deadline-now): the --timeout default (1500) is only a ceiling on a single reading, so waits run until the 2100 s deadline.
+  with tempfile.TemporaryDirectory() as t:
+   t=pathlib.Path(t);dl=t/'dl';g.main(['start','--pid',str(os.getpid()),'--pid-file',str(t/'pid'),'--deadline-file',str(dl),'--budget','2100'])
+   end=int(dl.read_text());start=end-2100;a=ns(deadline_file=str(dl),timeout=1500)
+   self.assertGreater(g.remaining(a,lambda:start+2099),0);self.assertLessEqual(g.remaining(a,lambda:start+2100),0)
+   d=t/'rr';d.mkdir();clock=[start]
+   def sleep(x):
+    clock[0]+=x
+    if clock[0]>=start+1700:(d/'manifest.json').write_text('{}')
+   out=[];real=g.output;g.output=lambda k,v:out.append((k,v))
+   try:g.wait_pending(ns(dir=str(d),exit_file=str(t/'e'),deadline_file=str(dl),timeout=1500,interval=5),lambda:clock[0],sleep)
+   finally:g.output=real
+   self.assertEqual(out,[('pending','true')])   # a review request 1700 s in (past 1500) is still seen
+   out.clear();(d/'manifest.json').unlink();clock[0]=start+2095;g.output=lambda k,v:out.append((k,v))
+   try:g.wait_pending(ns(dir=str(d),exit_file=str(t/'e'),deadline_file=str(dl),timeout=1500,interval=5),lambda:clock[0],lambda x:clock.__setitem__(0,clock[0]+x))
+   finally:g.output=real
+   self.assertEqual(out,[('pending','false')])  # and the wait ends at the deadline
