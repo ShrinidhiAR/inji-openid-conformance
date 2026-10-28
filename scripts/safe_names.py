@@ -7,6 +7,8 @@ CONDITION_CLASSES=frozenset(l.strip() for l in _PINNED.read_text().splitlines() 
 def category(error):
  text=str(error)
  return text if type(error).__name__ in {'HarnessError','ContractError'} and text in CATEGORIES else 'handoff_incomplete_or_failed'
+import re
+_REQ=re.compile(r'(OID4VCI|OID4VP|HAIP|FAPI2|OIDCC|RFC|OIDF|JARM|HTTP|DPOP|SD-JWT|ISO)[A-Za-z0-9._-]{0,40}')
 def conditions(entries,limit=60):
  """Return None when the log is not a list (diagnostic absent). Empty list means no findings."""
  if not isinstance(entries,list):return None
@@ -16,6 +18,11 @@ def conditions(entries,limit=60):
   result=e.get('result')
   if result not in {'FAILURE','WARNING','REVIEW'}:continue
   source=e.get('src') or e.get('source')
-  out.append({'source':source if isinstance(source,str) and source in CONDITION_CLASSES else 'other_unlisted_condition','result':result})
+  row={'source':source if isinstance(source,str) and source in CONDITION_CLASSES else 'other_unlisted_condition','result':result}
+  req=e.get('requirements')
+  if isinstance(req,list):
+   ids=[r for r in req if isinstance(r,str) and _REQ.fullmatch(r)][:4]
+   if ids:row['requirements']=ids  # suite-authored spec reference ids only, shape-checked; never free text
+  out.append(row)
   if len(out)>=limit:break
  return out

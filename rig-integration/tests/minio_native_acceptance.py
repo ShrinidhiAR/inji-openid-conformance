@@ -7,7 +7,7 @@ def main(args):
   process,properties=start_binary(directory,args.binary,args.provenance)
   try:
    create_bucket(properties)
-   for component,cp in [('certify',args.certify_classpath),('verify',args.verify_classpath)]:
+   for component,cp in [x for x in [('certify',args.certify_classpath),('verify',args.verify_classpath)] if x[1]]:
     subprocess.run([sys.executable,str(pathlib.Path(__file__).with_name('native_fixture_prototype.py')),'--component',component,'--java',args.java,'--rig-classpath',cp,'--s3-properties',str(properties)],check=True,timeout=100)
   finally:
    process.terminate()
@@ -15,4 +15,4 @@ def main(args):
    except subprocess.TimeoutExpired:process.kill();process.wait()
  print('PASS realMinIOstopped/privateTEMPremoved; officialHTTPsuitefixtureonly')
 if __name__=='__main__':
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('--binary',required=True);p.add_argument('--provenance',required=True);p.add_argument('--certify-classpath',required=True);p.add_argument('--verify-classpath',required=True);p.add_argument('--java',default='java');main(p.parse_args())
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--binary',required=True);p.add_argument('--provenance',required=True);p.add_argument('--certify-classpath');p.add_argument('--verify-classpath');p.add_argument('--java',default='java');main(p.parse_args())

@@ -10,7 +10,16 @@ from run_native import invoke
 from owned_process import run as owned_run
 from cleanup import cleanup
 
+def selected(component):
+ """Fail closed: only these selections exist; everything else is rejected before any stack is touched."""
+ table={'both':['certify','verify'],'certify':['certify'],'verify':['verify']}
+ if component not in table:raise ValueError('unsupported_component_selection')
+ return table[component]
+
 def main(args):
+ chosen=selected(getattr(args,'component','both'))
+ for c in chosen:
+  if not getattr(args,c+'_classpath',None):raise ValueError('classpath_required_for_'+c)
  review_token=os.environ.pop('GITHUB_TOKEN',None) if os.environ.get('CONFORMANCE_REVIEW_WINDOW') else None  # never inherited by compose, certify or MinIO
  out=pathlib.Path(args.output).resolve();private=None;compose=None;old=None;minio_process=None;project='conformance-'+uuid.uuid4().hex[:12];code=2;hosts=pathlib.Path('/etc/hosts');stages=[]
  if out.exists():raise ValueError('fresh_evidence_directory_required')
@@ -53,28 +62,29 @@ def main(args):
    minio_process,s3=start_binary(private,args.minio_binary,args.minio_provenance)
   create_bucket(s3)
   # Exactsynthetic issuer setup reused, no prodidentity/accounts.
-  stages.append('issuer_setup')
-  dto=json.loads((ROOT/'smoke/alpha-init/mdl-credential-config.json').read_text());base='https://certify.local.test:8443/v1/certify/credential-configurations'
-  r=s.post(base,json=dto,timeout=20);body=r.json()
-  if r.status_code!=201 or body.get('id')!='DrivingLicenseCredential':raise ValueError('issuer_configuration_create')
-  r=s.get(base+'/DrivingLicenseCredential',timeout=20)
-  if r.status_code!=200 or r.json().get('credentialConfigKeyId')!='DrivingLicenseCredential':raise ValueError('issuer_configuration_readback')
-  sys.path.insert(0,str(ROOT/'smoke/alpha-direct'));from issue import seed
-  seed()
-  from official_driver import Driver
-  config=Driver(private/'tls-ca.pem',out).configuration(out);cf=private/'issuer-suite-config.json';cf.write_text(json.dumps(config));os.chmod(cf,0o600)
-  from suite_contract import VARIANT
-  vf=private/'issuer-variants.json';vf.write_text(json.dumps(VARIANT));os.chmod(vf,0o600)
+  if 'certify' in chosen:
+   stages.append('issuer_setup')
+   dto=json.loads((ROOT/'smoke/alpha-init/mdl-credential-config.json').read_text());base='https://certify.local.test:8443/v1/certify/credential-configurations'
+   r=s.post(base,json=dto,timeout=20);body=r.json()
+   if r.status_code!=201 or body.get('id')!='DrivingLicenseCredential':raise ValueError('issuer_configuration_create')
+   r=s.get(base+'/DrivingLicenseCredential',timeout=20)
+   if r.status_code!=200 or r.json().get('credentialConfigKeyId')!='DrivingLicenseCredential':raise ValueError('issuer_configuration_readback')
+   sys.path.insert(0,str(ROOT/'smoke/alpha-direct'));from issue import seed
+   seed()
+   from official_driver import Driver
+   config=Driver(private/'tls-ca.pem',out).configuration(out);cf=private/'issuer-suite-config.json';cf.write_text(json.dumps(config));os.chmod(cf,0o600)
+   from suite_contract import VARIANT
+   vf=private/'issuer-variants.json';vf.write_text(json.dumps(VARIANT));os.chmod(vf,0o600)
   verify=json.loads((private/'verify-invocation.json').read_text());run=verify['run_id'].removesuffix('-verify')
-  certify={k:v for k,v in dict(verify,env_endpoint='https://certify.local.test:8443',component='certify',config=str(cf),variants=str(vf),run_id=run+'-certify',module='oid4vci-1_0-issuer-happy-flow',evidence_dir=str(out/'certify-evidence')).items() if k not in ('review_window','review_dir')}
+  certify=({k:v for k,v in dict(verify,env_endpoint='https://certify.local.test:8443',component='certify',config=str(cf),variants=str(vf),run_id=run+'-certify',module='oid4vci-1_0-issuer-happy-flow',evidence_dir=str(out/'certify-evidence')).items() if k not in ('review_window','review_dir')}) if 'certify' in chosen else None
   codes={}
-  for component,manifest,cp in [('certify',certify,args.certify_classpath),('verify',verify,args.verify_classpath)]:
+  for component,manifest,cp in [x for x in [('certify',certify if 'certify' in chosen else None,args.certify_classpath),('verify',verify,args.verify_classpath)] if x[0] in chosen]:
    stages.append('native_'+component)
    try:codes[component]=invoke(component,cp,str(pathlib.Path(args.java_home)/'bin/java'),manifest,out/component,s3,timeout=1560 if os.environ.get('CONFORMANCE_REVIEW_WINDOW') and component=='verify' else 600,extra_env={'GITHUB_TOKEN':review_token} if review_token and component=='verify' else None)
    except Exception:
     codes[component]=2
     (out/(component+'-invoke-error.json')).write_text(json.dumps({'component':component,'category':'native_invocation_failure','raw_error_retained':False}))
-  doc={'run':{'id':run},'native_exit_codes':codes,'scope':'selected issuer/Verify happyflows, not full plans/certification'}
+  doc={'run':{'id':run},'native_exit_codes':codes,'selected':chosen,'scope':'selected issuer/Verify happyflows, not full plans/certification'}
   for component in codes:
    f=out/component/'conformance-results.json'
    if f.exists():doc[component]=json.loads(f.read_text()).get(component,[])
@@ -90,4 +100,4 @@ def main(args):
  return code
 if __name__=='__main__':
  import argparse
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',required=True);p.add_argument('--locator',required=True);p.add_argument('--java-home',required=True);group=p.add_mutually_exclusive_group(required=True);group.add_argument('--minio-image');group.add_argument('--minio-binary');p.add_argument('--minio-provenance');p.add_argument('--certify-classpath',required=True);p.add_argument('--verify-classpath',required=True);a=p.parse_args();signal.signal(signal.SIGTERM,lambda s,f:(_ for _ in ()).throw(SystemExit(143)));sys.exit(main(a))
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',required=True);p.add_argument('--locator',required=True);p.add_argument('--java-home',required=True);group=p.add_mutually_exclusive_group(required=True);group.add_argument('--minio-image');group.add_argument('--minio-binary');p.add_argument('--minio-provenance');p.add_argument('--component',choices=['both','certify','verify'],default='both');p.add_argument('--certify-classpath');p.add_argument('--verify-classpath');a=p.parse_args();signal.signal(signal.SIGTERM,lambda s,f:(_ for _ in ()).throw(SystemExit(143)));sys.exit(main(a))
