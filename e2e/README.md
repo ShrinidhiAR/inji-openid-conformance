@@ -1,3 +1,5 @@
+> Historical planning note. Current status and commands: top-level README (status block and "Full-stack run") and docs/DEMO-GUIDE.md.
+
 # Running the full end-to-end stack locally
 
 This directory contains the real end-to-end setup: the official OpenID

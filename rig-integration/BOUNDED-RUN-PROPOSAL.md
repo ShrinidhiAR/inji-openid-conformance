@@ -1,3 +1,5 @@
+> Historical planning note. Current status and commands: top-level README (status block and "Full-stack run") and docs/DEMO-GUIDE.md.
+
 # Proposed single branch-only integration attempt
 
 Not authorization and not yet executed. Keep main untouched. No productpatch,

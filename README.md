@@ -44,8 +44,11 @@ export JAVA_HOME=/path/to/jdk21
 * Verify needs a human review decision (REVIEW verdict). The GitHub workflow `e2e-full-run.yml` (dispatch mode `native-combined`) does this with a short-lived review window; the one-command script alone does not fake it.
 * Output: `combined-results.json` (selected components, native exit codes, per-module status, failed condition names with known requirement ids), native TestNG/Extent reports,
   `local-s3-receipt.json`, `cleanup.json`, a project summary page. Only audited public files are meant to be shared; the private run log stays private.
-* Outcomes to expect: a non-zero exit when a module fails (Certify currently does); exit 2 for refused selections, guards, failed cleanup or failed audit.
-  No secret is ever passed on the command line or in chat; CI uses the repository's `GITHUB_TOKEN` (read-only) only for the Verify review step.
+* Exit codes (as implemented in the default `all` phase): the exit code of the run is kept. A failing module exits non-zero (Certify exits 1 today).
+  Cleanup or audit failure prints `cleanup_failed` or `audit_failed` on stderr and only turns an otherwise-zero exit into 2, so **a non-zero exit never proves cleanup was fine**.
+  Always check `cleanup.json` (`cleanup_verified: true`) and the audit line `COMBINED_PUBLIC_EVIDENCE_AUDIT_PASS` separately. Refused selections, guards and unsupported phases exit 2 before anything starts.
+  Called as separate phases, a failing `cleanup` or `audit` phase exits 2.
+* No secret is passed on the command line or in chat; CI uses the repository's `GITHUB_TOKEN` (read-only) only for the Verify review step.
 * Hosted CI on the branch: `.github/workflows/e2e-full-run.yml`, manual dispatch only, inputs `mode=native-combined`, `native_component=both|certify|verify`.
 
 
@@ -82,7 +85,13 @@ Running the suite by hand through its web UI is slow and hard to repeat. This pr
 
 ## Architecture and flow
 
-![Architecture diagram](docs/architecture.png)
+Main-era runner (existing-environment view, branch `main`):
+
+![Architecture diagram, main-era runner](docs/architecture.png)
+
+Full-stack native run (branch `e2e-full-run`), with the recorded outcomes:
+
+![Architecture diagram, full-stack native run](docs/architecture-full-stack.png)
 
 The diagram is also available as an editable PowerPoint file: [`docs/architecture.pptx`](docs/architecture.pptx).
 
@@ -115,8 +124,10 @@ inji-openid-conformance/
 │       ├── certify-issuer-config.json        # Test plan config for Inji Certify (issuer)
 │       └── verify-verifier-config.json       # Test plan config for Inji Verify (verifier)
 ├── docs/
-│   ├── architecture.png                      # Architecture diagram
-│   ├── architecture.pptx                     # Editable diagram source
+│   ├── architecture.png                      # Main-era architecture diagram
+│   ├── architecture-full-stack.png           # Full-stack native run diagram (e2e-full-run)
+│   ├── architecture.pptx                     # Editable source, 2 slides: main-era runner, full-stack run
+│   ├── DEMO-GUIDE.md                         # Honest demo/run guide for the branch
 │   └── sample-output/                        # Illustrative bridge input/output
 ├── apitestrig-bridge/                        # Java/TestNG bridge into api-testrig reporting (see below)
 │   ├── pom.xml
@@ -141,7 +152,10 @@ inji-openid-conformance/
 * Enough memory for several containers: 8 GB RAM minimum, 16 GB comfortable
 * A running Inji Certify and/or Inji Verify instance reachable at the URLs in the config files (see [Configuration](#configuration)). This repository does not start them.
 
-## Quick Start
+## Quick Start (main-era runner; NOT the `e2e-full-run` full-stack path)
+
+> Applies to branch `main` only: it needs your own running Certify/Verify and does not boot the stack, MinIO or the native rig.
+> On `e2e-full-run`, use [Full-stack run](#full-stack-run-e2e-full-run-branch) above. The old `--component` runner here has a different interface and is not the verified path.
 
 1. **Start the Conformance Suite & MongoDB:**
    ```powershell
@@ -483,6 +497,22 @@ All values are placeholders for local testing and are not real credentials:
 * Conformance suite OAuth client values in `docker-compose.yml`: `dummy-client-id` / `dummy-client-secret`.
 
 ## Troubleshooting
+
+### Full-stack run (`e2e-full-run`)
+
+| Symptom | Meaning and next step |
+|---|---|
+| `refusing: this boots docker containers ... pass --approve-runtime` (exit 2) | Deliberate guard. Re-run with `--approve-runtime` only on a scratch machine or CI runner |
+| `CONFORMANCE_WORK must be under /tmp` or `TMPDIR must be under /tmp` (exit 2) | Staging and exact cleanup only accept `/tmp`. Unset `TMPDIR` or point both under `/tmp`. Do not use `RUNNER_TEMP` |
+| `--phase X needs CONFORMANCE_WORK` (exit 2) | Split phases share one work directory; export it (under `/tmp`) |
+| `fresh_evidence_directory_required` | `--output` already exists. Pick a new directory |
+| `new_temporary_destination_required` | The staged rig directory already exists or is outside `/tmp`. Use a fresh work directory |
+| `mvn: command not found`, `go: command not found` | Install Maven and Go. They are required for the prepare step |
+| `cleanup_failed` / `audit_failed` on stderr | Look at `cleanup.json` (`cleanup_verified`) and the audit output. If cleanup is not verified, check `docker compose ls`, leftover `conformance-*` projects and `/etc/hosts`; the run's original exit code can still be 1 |
+| Exit 1 and a module `FAILED` in `combined-results.json` | A recorded benchmark outcome, not a harness fault. See `conditions` for the failed suite check and requirement id |
+| Verify verdict `REVIEW` | Human decision required by the suite; the harness does not turn it green |
+
+### Main-era runner (`main`)
 
 | Symptom | Likely cause and fix |
 |---|---|
