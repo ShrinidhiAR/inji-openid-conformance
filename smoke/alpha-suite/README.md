@@ -55,3 +55,12 @@ terminal process failures abort promptly. Health starting/unhealthy is evidence 
 projected without text/paths/hostnames. No new config fix or security weakening
 is assumed without diagnostic evidence. Unit tests exercise HTTP502 timeout,
 TLS SAN mismatch, dead proxy, lifecycle redaction and safe proxy projection.
+
+Run40630283599 fail-fast diagnosed transport verify_code85 on first Certify
+request. Its public leaf/root reproduce OpenSSL strict errors missing AKI85 and
+SKI86, though non-strict verification passed. Minimal correction adds SKI/AKI
+to transport root/leaf only. Every generated runtime CA+leaf/SAN now passes
+openssl strict checks before services start. Local regression also requires
+wrong hostname and wrong chain to fail and actual Python strict loopback TLS
+to pass. This corrects our deployment profile, not SUT or official assertions;
+credential IACA/document-signer profile is unchanged.

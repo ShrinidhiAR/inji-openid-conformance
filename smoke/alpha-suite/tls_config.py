@@ -10,14 +10,21 @@ CERTIFY='https://'+NAMES[0]+':8443';AS='https://'+NAMES[1]+':8443';SUITE='https:
 def tls(private,public,java_home):
     private=pathlib.Path(private);public=pathlib.Path(public);now=datetime.datetime.now(datetime.timezone.utc)
     ca=ec.generate_private_key(ec.SECP256R1());name=x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,'Ephemeral local TEST transport CA')])
-    root=(x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(ca.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-datetime.timedelta(minutes=1)).not_valid_after(now+datetime.timedelta(days=1)).add_extension(x509.BasicConstraints(ca=True,path_length=0),True).add_extension(x509.KeyUsage(True,False,False,False,False,True,True,False,False),True).sign(ca,hashes.SHA256()))
+    root=(x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(ca.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-datetime.timedelta(minutes=1)).not_valid_after(now+datetime.timedelta(days=1)).add_extension(x509.SubjectKeyIdentifier.from_public_key(ca.public_key()),False).add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca.public_key()),False).add_extension(x509.BasicConstraints(ca=True,path_length=0),True).add_extension(x509.KeyUsage(True,False,False,False,False,True,True,False,False),True).sign(ca,hashes.SHA256()))
     (private/'tls-ca.pem').write_bytes(root.public_bytes(serialization.Encoding.PEM));(public/'tls-ca.pem').write_bytes(root.public_bytes(serialization.Encoding.PEM))
     for host in NAMES:
         key=ec.generate_private_key(ec.SECP256R1())
-        cert=(x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,host)])).issuer_name(name).public_key(key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-datetime.timedelta(minutes=1)).not_valid_after(now+datetime.timedelta(hours=4)).add_extension(x509.BasicConstraints(ca=False,path_length=None),True).add_extension(x509.SubjectAlternativeName([x509.DNSName(host)]),False).add_extension(x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]),False).sign(ca,hashes.SHA256()))
+        cert=(x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,host)])).issuer_name(name).public_key(key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-datetime.timedelta(minutes=1)).not_valid_after(now+datetime.timedelta(hours=4)).add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()),False).add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca.public_key()),False).add_extension(x509.BasicConstraints(ca=False,path_length=None),True).add_extension(x509.SubjectAlternativeName([x509.DNSName(host)]),False).add_extension(x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]),False).sign(ca,hashes.SHA256()))
         (private/(host+'.key')).write_bytes(key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
         (private/(host+'.pem')).write_bytes(cert.public_bytes(serialization.Encoding.PEM))
         (public/(host+'.pem')).write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    # Verify every fresh runtime transport chain/SAN before any service starts.
+    # Do not weaken client verification to accommodate our generated certificates.
+    rootcheck=subprocess.run(['openssl','verify','-x509_strict','-CAfile',str(public/'tls-ca.pem'),str(public/'tls-ca.pem')],capture_output=True)
+    if rootcheck.returncode:raise ValueError('TEST transport root strict verification failed')
+    for host in NAMES:
+        check=subprocess.run(['openssl','verify','-x509_strict','-verify_hostname',host,'-CAfile',str(public/'tls-ca.pem'),str(public/(host+'.pem'))],capture_output=True)
+        if check.returncode:raise ValueError('TEST transport leaf strict verification failed')
     # Copy normal roots and add TEST CA, rather than replacing platform trust.
     import shutil
     shutil.copyfile(pathlib.Path(java_home)/'lib/security/cacerts',private/'truststore')

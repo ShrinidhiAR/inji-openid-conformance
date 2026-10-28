@@ -409,7 +409,7 @@ jobs:
       - name: Install bounded harness dependencies
         run: pip install requests cryptography cbor2 PyJWT pyyaml
       - name: Local preparation tests
-        run: cd smoke/alpha-suite && python3 -m unittest -v test_preparation test_readiness
+        run: cd smoke/alpha-suite && python3 -m unittest -v test_preparation test_readiness test_transport
       - name: Validate private compose then run selected official modules and gate
         run: python3 smoke/alpha-suite/run_once.py
       - name: Audit public evidence before upload
