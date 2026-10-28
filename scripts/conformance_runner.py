@@ -21,21 +21,8 @@ def official(base,ca):
  spec=importlib.util.spec_from_file_location('pinned_conformance',LIB);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
  return module.Conformance(base,None,ca or True)
 
-SAFE_CATEGORY=re.compile('[a-z][a-z0-9_]{2,80}')
-def safe_category(error):
- # Only project-defined contract/harness categories survive; upstream text never does.
- if type(error).__name__ in {'HarnessError','ContractError'} and SAFE_CATEGORY.fullmatch(str(error)):return str(error)
- return 'handoff_incomplete_or_failed'
-def safe_conditions(entries,limit=60):
- # Class name and verdict only. No msg, args, config, request or body.
- out=[]
- for e in entries if isinstance(entries,list) else []:
-  if not isinstance(e,dict):continue
-  source=e.get('src') or e.get('source');result=e.get('result')
-  if isinstance(source,str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_.]{0,180}',source) and result in {'FAILURE','WARNING','REVIEW'}:
-   out.append({'source':source,'result':result})
-  if len(out)>=limit:break
- return out
+sys.path.insert(0,str(pathlib.Path(__file__).resolve().parent))
+from safe_names import category as safe_category,conditions as safe_conditions
 
 def check(ok,category):
  if not ok:raise HarnessError(category)
@@ -74,8 +61,10 @@ class Runner:
       except Exception as e:raise HarnessError(safe_category(e)) from None
      await asyncio.sleep(0.25)
    except HarnessError as e:row.update(status='HARNESS_ERROR',harness_category=str(e),result=None)
-   try:row['conditions']=safe_conditions(await self.call(self.client.get_test_log,mid))
-   except Exception:row['conditions_unavailable']=True
+   try:found=safe_conditions(await self.call(self.client.get_test_log,mid))
+   except Exception:found=None
+   if found is None:row['conditions_unavailable']=True
+   else:row['conditions']=found
    rows.append(row)
    if checkpoint:checkpoint(rows)
   return {'plan_id':pid,'requested':requested,'coverage':'selected modules' if selected else 'created plan module names','rows':rows}
