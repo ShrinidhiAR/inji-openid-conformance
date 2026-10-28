@@ -48,11 +48,14 @@ export JAVA_HOME=/path/to/jdk21 CONFORMANCE_WORK=/tmp/inji-local-1     # must no
 ./run-full-stack-conformance.sh --combined --approve-runtime --review local
 # terminal 2: after the REVIEW line appears
 python3 rig-integration/review_local.py show --work /tmp/inji-local-1   # prints the image path, run/test ids and seconds left
-sha256sum /tmp/inji-local-1/review-request/*-verify-result.png          # you compute the hash of the image you opened
+# OPEN the PNG in an image viewer and inspect the verification transaction, each check result and its scope. Only then:
+sha256sum /tmp/inji-local-1/review-request/*-verify-result.png          # hash of the file you inspected
 python3 rig-integration/review_local.py approve --work /tmp/inji-local-1 --png-sha256 <that hash>
+# after the run (removes only the sanitized image and control files):
+python3 rig-integration/review_local.py clean --work /tmp/inji-local-1
 ```
-The approval is written only if the hash you typed equals the image hash, before the 10 minute deadline (`CONFORMANCE_REVIEW_WINDOW`, at most 600 seconds), into a private `0700` directory that refuses symlinks and other users, and it is never overwritten. The Verify module then ends REVIEW (never PASSED); without an approval it ends HARNESS_ERROR as before. The image is a project-rendered view of the Verify v2 result API, not the native Verify UI, and nothing here is certification.
-Status: covered by unit tests with the real validator and a fake suite only. It has not been run against the real stack. The only environment where the full stack has run is GitHub-hosted `ubuntu-latest` (JDK 21, Go 1.26.6, Python 3.12, Docker); local compatibility, memory and run time are not established.
+The hash only identifies which file is approved; it is not evidence that anyone looked at it, so the inspection is on you. The approval is written only if the hash you typed equals the image hash, before the 10 minute deadline (`CONFORMANCE_REVIEW_WINDOW`, at most 600 seconds), into a private `0700` directory that refuses symlinks (including in parent directories, `--work` must be a real directory under `/tmp` that you own and others cannot write) and other users, and it is never overwritten. The Verify module then ends REVIEW (never PASSED); without an approval it ends HARNESS_ERROR as before. The image is a project-rendered view of the Verify v2 result API, not the native Verify UI, and nothing here is certification.
+Status: UNTESTED against the real stack. It is covered only by unit tests with the real validator and a fake suite. The hosted success (run 40651319058) used the GitHub-review source, not this local source, and says nothing about it. The only environment where the full stack has run is GitHub-hosted `ubuntu-latest` (JDK 21, Go 1.26.6, Python 3.12, Docker); local compatibility, memory and run time are not established.
 
 * Work directory: default is a fresh `mktemp -d`. `CONFORMANCE_WORK` may be set but must be under `/tmp`, and `TMPDIR` must also be under `/tmp`
   (staging and exact cleanup only accept `/tmp`); the script refuses otherwise with exit 2. `--output DIR` must not exist yet (default `combined-conformance-out`).

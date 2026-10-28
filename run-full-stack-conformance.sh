@@ -69,6 +69,7 @@ run(){
   local reviewenv=() notoken=()
   if [ -n "$review" ]; then
     # Local review: fresh private request and approval directories, no GitHub token; a human approves from a second terminal.
+    [ -d "$work" ] && [ ! -L "$work" ] && [ -O "$work" ] && [ -z "$(find "$work" -maxdepth 0 -perm /022)" ] && [ "$(realpath "$work")" = "$(realpath -s "$work")" ] || { echo "refusing: with --review local the work directory must be a real directory you own, not writable by others, with no symlink in its path" >&2; exit 2; }
     [ ! -e "$work/review-request" ] && [ ! -e "$work/review-approvals" ] || { echo "refusing: review directories already exist; use a fresh CONFORMANCE_WORK" >&2; exit 2; }
     mkdir -m 700 "$work/review-request" "$work/review-approvals"
     notoken=(-u GITHUB_TOKEN)
