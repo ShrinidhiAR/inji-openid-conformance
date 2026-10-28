@@ -1,19 +1,58 @@
 # MOSIP Inji OpenID Conformance Automation
 
-> Experimental branch status, 2026-10-28: this is not yet the completed whole-project
-> demo. Real direct Bearer issuance/integrity passed. Two real selected official
-> issuer modules failed and were truthfully reported by standalone MOSIP/TestNG.
-> Full per-module api-testrig, MinIO, Verify and combined execution remain unproved.
-> The old generic CLI below used an invalid lifecycle and has been replaced locally.
-> Its new existing-environment entrypoint requires explicit configs/variants and
-> fails closed on a browser handoff without a supported adapter. Do not treat the
-> historical quick start below as a verified whole-stack command. See
-> `rig-integration/NEXT-MILESTONE.md` for the source-grounded remaining work.
+> **Status of branch `e2e-full-run` (2026-10-28). Read this before the older sections below.**
+> `main` holds the original suite runner, the standalone api-testrig XML bridge and fixture-only checks.
+> The full-stack work lives only on `e2e-full-run`. It starts pinned Inji Certify, Inji Verify, eSignet,
+> a mock identity service, the OpenID conformance suite and a source-built local MinIO on one disposable
+> stack, runs the **selected happy-flow modules** through a per-component api-testrig TestNG class
+> (native Extent/TestNG reports, uploaded to local MinIO and read back), then cleans up and audits the public evidence.
+>
+> What has actually been run on GitHub-hosted runners (all on `e2e-full-run`):
+> * **Certify only, one command (`./run-full-stack-conformance.sh --component certify --approve-runtime`, default all phases):**
+>   works end to end (stage, compile, MinIO, stack, run, S3 readback, cleanup verified, evidence audit passed).
+>   Result: the suite module `oid4vci-1_0-issuer-happy-flow` ended INTERRUPTED/FAILED. The suite's
+>   `EnsureHttpStatusCodeIsAnyOf` check failed (requirement `OID4VCI-1FINAL-8.3`, the credential endpoint response status check). The root cause in the product or the
+>   configuration is **not established**. This is a recorded benchmark outcome, not a harness fault.
+> * **Combined Certify + Verify** through the phased workflow (`native_component=both`): Certify as above; Verify ended
+>   FINISHED with verdict **REVIEW** (conditions `ExpectVerifierSuccessfulVerificationPage=REVIEW`, `EnsureVerifierFetchedRevocationList=WARNING`).
+>   REVIEW needs a human decision; the project-rendered PNG is a view of the Verify v2 result API, not a native Verify UI.
+> * **Not run on a hosted runner:** Verify-only through the one-command script; full official plans (only selected happy flows are in scope);
+>   any expected-failure baseline (none has been recorded, so none is claimed).
+> * Nothing here is a certification claim. Failing and REVIEW outcomes are reported as they are; checks are not weakened to turn them green.
+>
+> The "Quick Start" below is the older existing-environment runner (you supply running Certify/Verify). The full-stack commands are in
+> [Full-stack run](#full-stack-run-e2e-full-run-branch).
+
+## Full-stack run (`e2e-full-run` branch)
+
+Dependencies: Linux with Docker (compose v2) and `sudo` (the run edits `/etc/hosts` and restores it), Python 3 with `scripts/requirements.txt`,
+JDK 21, Maven, Go (builds MinIO from a pinned source archive), git, network access to GitHub and the image registries. Use a scratch machine or CI runner.
+The run boots containers, edits the hosts file and builds MinIO, so it refuses to start without `--approve-runtime`.
+
+```sh
+git clone -b e2e-full-run https://github.com/ShrinidhiAR/inji-openid-conformance.git && cd inji-openid-conformance
+pip install -r scripts/requirements.txt
+export JAVA_HOME=/path/to/jdk21
+./run-full-stack-conformance.sh --component certify --approve-runtime     # proven on a hosted runner
+./run-full-stack-conformance.sh --component verify  --approve-runtime     # same code path, not yet run hosted
+./run-full-stack-conformance.sh --combined          --approve-runtime     # Verify needs the review step below
+```
+
+* Work directory: default is a fresh `mktemp -d`. `CONFORMANCE_WORK` may be set but must be under `/tmp`, and `TMPDIR` must also be under `/tmp`
+  (staging and exact cleanup only accept `/tmp`); the script refuses otherwise with exit 2. `--output DIR` must not exist yet (default `combined-conformance-out`).
+* `--phase prepare|run|cleanup|audit` splits the steps (needs `CONFORMANCE_WORK`); the default `all` always runs cleanup and audit, even after a failure, and keeps the original exit code.
+* Verify needs a human review decision (REVIEW verdict). The GitHub workflow `e2e-full-run.yml` (dispatch mode `native-combined`) does this with a short-lived review window; the one-command script alone does not fake it.
+* Output: `combined-results.json` (selected components, native exit codes, per-module status, failed condition names with known requirement ids), native TestNG/Extent reports,
+  `local-s3-receipt.json`, `cleanup.json`, a project summary page. Only audited public files are meant to be shared; the private run log stays private.
+* Outcomes to expect: a non-zero exit when a module fails (Certify currently does); exit 2 for refused selections, guards, failed cleanup or failed audit.
+  No secret is ever passed on the command line or in chat; CI uses the repository's `GITHUB_TOKEN` (read-only) only for the Verify review step.
+* Hosted CI on the branch: `.github/workflows/e2e-full-run.yml`, manual dispatch only, inputs `mode=native-combined`, `native_component=both|certify|verify`.
 
 
 Automated local execution and CI/CD pipeline integration for MOSIP Inji Certify (OpenID4VCI) and Verify (OpenID4VP) components using the official OpenID Foundation Conformance Suite.
 
 ## Table of Contents
+0. [Full-stack run (e2e-full-run branch)](#full-stack-run-e2e-full-run-branch)
 1. [Overview](#overview)
 2. [Architecture and flow](#architecture-and-flow)
 3. [Repository structure](#repository-structure)
@@ -461,6 +500,6 @@ All values are placeholders for local testing and are not real credentials:
 ## Known limitations
 
 * The runner polls each test with no overall time limit. A module that waits for a manual step (for example a wallet action in the suite UI) will keep the runner waiting until the step is done in the UI at <http://localhost:8080>.
-* The compose file starts only the conformance suite and MongoDB. Inji Certify and Inji Verify must be started separately.
-* The api-testrig bridge is implemented and verified on fixture data only. Running it inside the full `InjiTestRunner`, uploading the report to MOSIP's MinIO/S3, and live conformance against real Inji Certify / Inji Verify instances are implemented and documented but have not been executed by us (they need a MOSIP environment and running Inji services). See the verification status in the api-testrig integration section.
+* (Applies to the older runner on `main`.) The compose file starts only the conformance suite and MongoDB. Inji Certify and Inji Verify must be started separately.
+* On `main`, the api-testrig bridge is verified on fixture data only. On `e2e-full-run` the per-component native TestNG class, local MinIO upload with readback, and live Certify/Verify happy-flow runs have been executed on hosted runners (see the status block at the top); full official plans and an expected-failure baseline have not.
 * The `latest` tag of the suite image is not pinned, so behavior can change when the image is updated.
