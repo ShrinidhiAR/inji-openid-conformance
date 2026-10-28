@@ -3,7 +3,7 @@ import os,pathlib,subprocess,tempfile,unittest
 ROOT=pathlib.Path(__file__).resolve().parents[2];S=str(ROOT/'run-full-stack-conformance.sh')
 SHIM='''#!/bin/bash
 echo "$(basename $0) $*" >> "$SHIM_LOG"
-echo "env $(basename $0) token=${GITHUB_TOKEN:-unset} window=${CONFORMANCE_REVIEW_WINDOW:-unset} dir=${CONFORMANCE_REVIEW_DIR:-unset}" >> "$SHIM_LOG.env"
+echo "env $(basename $0) token=${GITHUB_TOKEN:-unset} window=${CONFORMANCE_REVIEW_WINDOW:-unset} dir=${CONFORMANCE_REVIEW_DIR:-unset} src=${CONFORMANCE_REVIEW_SOURCE:-unset} appr=${CONFORMANCE_REVIEW_APPROVALS_DIR:-unset}" >> "$SHIM_LOG.env"
 case "$(basename $0) $*" in
  *run_combined.py*) if [ -n "$SHIM_HANG" ]; then trap 'echo run_combined_got_TERM >> "$SHIM_LOG"; kill $sp 2>/dev/null; exit 143' TERM; sleep 30 & sp=$!; wait $sp; fi; exit ${SHIM_RUN_EXIT:-0};;
  *audit_evidence.py*) exit ${SHIM_AUDIT_EXIT:-0};;

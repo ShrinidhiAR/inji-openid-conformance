@@ -13,7 +13,13 @@ class Handoffs:
   from conformance_runner import HarnessError
   try:
    if not getattr(self.args,'review_dir',None):raise review.ReviewError('review_configuration')
-   review.need(0<self.window<=600,'review_configuration');run=os.environ.get('GITHUB_RUN_ID','');review.need(run,'review_configuration')
+   review.need(0<self.window<=600,'review_configuration')
+   if os.environ.get('CONFORMANCE_REVIEW_SOURCE')=='local':
+    # Local approval: a private directory on this machine. Needs no GitHub variable or token; the run id is this run's own fresh id.
+    run=getattr(self.args,'run_id',None) or '';review.valid_ids(run,'placeholderx1');review.need(os.environ.get('CONFORMANCE_REVIEW_APPROVALS_DIR'),'review_configuration')
+    review.private_dir(self.args.review_dir)
+    return {'dir':self.args.review_dir,'window':self.window,'run_id':run,'source':review.local_source(os.environ['CONFORMANCE_REVIEW_APPROVALS_DIR']),'clock':time.time,'sleep':asyncio.sleep,'interval':5}
+   run=os.environ.get('GITHUB_RUN_ID','');review.need(run,'review_configuration')
    return {'dir':self.args.review_dir,'window':self.window,'run_id':run,'source':review.github_source(),'clock':time.time,'sleep':asyncio.sleep,'interval':15}
   except review.ReviewError as e:raise HarnessError(str(e)) from None
  async def close(self):
