@@ -1,3 +1,5 @@
+> Historical planning note. Current status and commands: top-level README (status block and "Full-stack run") and docs/DEMO-GUIDE.md.
+
 # Next integration milestone, 2026-10-28
 
 Status: LOCAL PREPARATION ONLY. No additional remote run or new runtime claim.
