@@ -2,17 +2,18 @@
 import datetime,json,pathlib,re,sys,time,urllib.parse,uuid,requests
 HERE=pathlib.Path(__file__).resolve().parent
 sys.path.insert(0,str(HERE.parent/'alpha-direct'))
-from safe_classic import SafeClassic,json_object,ProtocolFailure
+from safe_classic import json_object,ProtocolFailure
+from safe_esignet import SafeEsignet
 from esignet import gen_client_key
 from tls_config import CERTIFY,AS,SUITE
 from outcomes import document,write,safe_conditions
 from suite_contract import PLAN,PLAN_ROUTE,MODULES,VARIANT,plan_info,created_plan,created_module,wait_state,test_info,implicit_target,require,ContractError
 ALIAS='alpha-official';CALLBACK=SUITE+'/test/a/'+ALIAS+'/callback'
 class Driver:
- def __init__(self,ca):
+ def __init__(self,ca,out=None):
   self.s=requests.Session();self.s.verify=str(ca);self.s.trust_env=False;self.s.headers.update({'Content-Type':'application/json'})
   self.last_api=None
-  self.es=SafeClassic(AS,AS);self.es.s.verify=str(ca);self.es.s.trust_env=False
+  self.es=SafeEsignet(AS,AS,out or pathlib.Path.cwd());self.es.s.verify=str(ca);self.es.s.trust_env=False
  def api(self,method,path,expected=200,**kw):
   self.last_api={'method':method,'path_template':re.sub(r'/[A-Za-z0-9]{8,32}(?=/|$)','/<id>',path),'expected_http':expected}
   r=self.s.request(method,SUITE+path,timeout=40,allow_redirects=False,**kw)

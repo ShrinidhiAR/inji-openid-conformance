@@ -4,7 +4,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes,serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
-NAMES=('certify.local.test','esignet.local.test','suite.local.test')
+NAMES=('certify.local.test','esignet.local.test','suite')
 CERTIFY='https://'+NAMES[0]+':8443';AS='https://'+NAMES[1]+':8443';SUITE='https://'+NAMES[2]+':8443'
 
 def tls(private,public,java_home):

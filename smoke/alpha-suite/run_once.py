@@ -44,7 +44,7 @@ def main():
   md=json_object(s.get(CERTIFY+'/v1/certify/.well-known/openid-credential-issuer',timeout=20))
   if md.get('credential_issuer')!=CERTIFY or md.get('authorization_servers')!=[AS] or md.get('nonce_endpoint')!=CERTIFY+'/v1/certify/nonce':raise ValueError('metadata deployment mismatch')
   stage='synthetic_seed';seed()
-  stage='official_modules';driver=Driver(private/'tls-ca.pem')
+  stage='official_modules';driver=Driver(private/'tls-ca.pem',OUT)
   try:driver.run(OUT,run_id,started)
   except Exception as de:
    (OUT/'suite-api-failure.json').write_text(json.dumps({'category':getattr(de,'category','driver_exception'),'error_class':type(de).__name__,'last_api':driver.last_api,'raw_values_retained':False}))
