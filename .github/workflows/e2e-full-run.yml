@@ -482,7 +482,7 @@ jobs:
       - name: Prepare through the one-command script (pinned native source, compile, MinIO build and acceptance)
         if: github.event.inputs.native_component != 'certify'
         env:
-          CONFORMANCE_WORK: ${{ runner.temp }}/conformance-work
+          CONFORMANCE_WORK: /tmp/conformance-work
           NATIVE_COMPONENT: ${{ github.event.inputs.native_component }}
         run: |
           case "${NATIVE_COMPONENT:-both}" in both) sel="--combined";; certify|verify) sel="--component $NATIVE_COMPONENT";; *) echo unsupported selection; exit 2;; esac
@@ -492,7 +492,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.event.inputs.native_component != 'certify' && secrets.GITHUB_TOKEN || '' }}
           CONFORMANCE_REVIEW_WINDOW: ${{ github.event.inputs.native_component != 'certify' && '480' || '' }}
           CONFORMANCE_REVIEW_DIR: ${{ runner.temp }}/review-request
-          CONFORMANCE_WORK: ${{ runner.temp }}/conformance-work
+          CONFORMANCE_WORK: /tmp/conformance-work
           NATIVE_COMPONENT: ${{ github.event.inputs.native_component }}
         run: |
           case "${NATIVE_COMPONENT:-both}" in both) export SEL="--combined";; certify|verify) export SEL="--component $NATIVE_COMPONENT";; *) echo unsupported selection; exit 2;; esac
@@ -528,13 +528,13 @@ jobs:
       - name: Exact owned fallback cleanup after interruption (script phase)
         if: always()
         env:
-          CONFORMANCE_WORK: ${{ runner.temp }}/conformance-work
+          CONFORMANCE_WORK: /tmp/conformance-work
         run: ./run-full-stack-conformance.sh --combined --approve-runtime --phase cleanup
       - name: Audit exact public evidence, no raw Docker or native private logs (script phase)
         id: audit
         if: always()
         env:
-          CONFORMANCE_WORK: ${{ runner.temp }}/conformance-work
+          CONFORMANCE_WORK: /tmp/conformance-work
         run: ./run-full-stack-conformance.sh --combined --approve-runtime --phase audit
       - uses: actions/upload-artifact@v4
         if: always() && steps.audit.outcome == 'success'
