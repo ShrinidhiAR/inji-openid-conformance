@@ -30,7 +30,10 @@ if [ "$approve" != 1 ]; then
 fi
 if [ "$phase" != all ] && [ -z "${CONFORMANCE_WORK:-}" ]; then echo "refusing: --phase $phase needs CONFORMANCE_WORK so phases share one work directory" >&2; exit 2; fi
 case "$sel" in both) comps="certify verify";; *) comps="$sel";; esac
-work="${CONFORMANCE_WORK:-$(mktemp -d)}"; mkdir -p "$work"
+work="${CONFORMANCE_WORK:-$(mktemp -d)}"
+# stage_isolated.py and fallback_cleanup.py only accept paths under the system temp dir; refuse early with a clear reason.
+case "$(realpath -m "$work")" in /tmp/*) ;; *) echo "refusing: CONFORMANCE_WORK must be under /tmp (isolated staging and exact cleanup only accept /tmp paths)" >&2; exit 2;; esac
+mkdir -p "$work"
 cp_arg(){ echo "$work/native-$1-rig/target/classes:$(cat "$work/native-$1-classpath")"; }
 status=0
 prepare(){

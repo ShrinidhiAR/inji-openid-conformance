@@ -38,6 +38,13 @@ class Refusals(unittest.TestCase):
    r,l=sh(*a,'--approve-runtime');self.assertEqual(r.returncode,2,a);self.assertEqual(l,[],a)
  def test_split_phase_requires_shared_work_dir(self):
   r,l=sh('--combined','--approve-runtime','--phase','run',work=False);self.assertEqual(r.returncode,2);self.assertEqual(l,[])
+class WorkDir(unittest.TestCase):
+ def test_work_dir_outside_tmp_is_refused_before_any_work(self):
+  for bad in ('/home/runner/work/_temp/conformance-work','/tmp/../home/x','/var/tmp/x'):
+   r,l=sh('--combined','--approve-runtime',env={'CONFORMANCE_WORK':bad});self.assertEqual(r.returncode,2,bad);self.assertIn('/tmp',r.stderr);self.assertEqual(l,[],bad)
+ def test_workflow_work_dir_is_under_tmp(self):
+  t=(ROOT/'.github/workflows/e2e-full-run.yml').read_text();j=t[t.index('  native-combined:'):]
+  self.assertNotIn('runner.temp }}/conformance-work',j);self.assertEqual(j.count('CONFORMANCE_WORK: /tmp/conformance-work'),4)
 class Routing(unittest.TestCase):
  def test_combined_uses_both_rigs(self):
   r,l=sh('--combined','--approve-runtime');self.assertEqual(r.returncode,0,r.stderr)
