@@ -8,6 +8,12 @@ class T(unittest.TestCase):
 class Req(unittest.TestCase):
  def test_requirement_ids_are_shape_checked_and_capped(self):
   import sys,pathlib;sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]));import safe_names as n
-  r=n.conditions([{'src':'EnsureHttpStatusCodeIsAnyOf','result':'FAILURE','requirements':['OID4VCI-1FINAL-8.3','bad text with spaces','eyJabc.def.ghi','OID4VCI-1FINAL-9.2','RFC9449-4','HAIP-1','FAPI2-SP-FINAL-5.3.4-2']}])
-  self.assertEqual(r,[{'source':'EnsureHttpStatusCodeIsAnyOf','result':'FAILURE','requirements':['OID4VCI-1FINAL-8.3','OID4VCI-1FINAL-9.2','RFC9449-4','HAIP-1']}])
+  r=n.conditions([{'src':'EnsureHttpStatusCodeIsAnyOf','result':'FAILURE','requirements':['OID4VCI-1FINAL-8.3','bad text with spaces','eyJabc.def.ghi','OID4VCI-secret-not-in-list','OID4VCI-1FINAL-9.2','RFC9449-4','HAIP-1','FAPI2-SP-FINAL-5.3.4-2']}])
+  self.assertEqual(r,[{'source':'EnsureHttpStatusCodeIsAnyOf','result':'FAILURE','requirements':['OID4VCI-1FINAL-8.3','OID4VCI-1FINAL-9.2','FAPI2-SP-FINAL-5.3.4-2']}])
   self.assertEqual(n.conditions([{'src':'EnsureHttpStatusCodeIsAnyOf','result':'FAILURE','requirements':'x'}]),[{'source':'EnsureHttpStatusCodeIsAnyOf','result':'FAILURE'}])
+
+ def test_requirement_list_pinned(self):
+  import hashlib
+  data=(ROOT/'requirement_ids.txt').read_bytes();self.assertEqual(hashlib.sha256(data).hexdigest(),'75a8822976aafad6ae2acb4195110b1492e912aa933c97628e0382d63938f020')
+  import sys;sys.path.insert(0,str(ROOT));import safe_names as n
+  self.assertIn('OID4VCI-1FINAL-8.3',n.REQUIREMENT_IDS);self.assertNotIn('OID4VCI-secret-not-in-list',n.REQUIREMENT_IDS);self.assertGreater(len(n.REQUIREMENT_IDS),600)

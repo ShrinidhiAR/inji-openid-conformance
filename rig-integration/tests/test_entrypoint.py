@@ -1,8 +1,17 @@
 """run-full-stack-conformance.sh routing, argv, cleanup and fail-closed behaviour, with every external command shimmed (nothing real runs)."""
 import os,pathlib,subprocess,tempfile,unittest
 ROOT=pathlib.Path(__file__).resolve().parents[2];S=str(ROOT/'run-full-stack-conformance.sh')
-SHIM='#!/bin/bash\necho "$(basename $0) $*" >> "$SHIM_LOG"\ncase "$(basename $0) $*" in *run_combined.py*) exit ${SHIM_RUN_EXIT:-0};; *audit_evidence.py*) exit ${SHIM_AUDIT_EXIT:-0};; esac\nexit 0\n'
-def sh(*a,env=None,work=True,run_exit=0,audit_exit=0,locator=True,out_exists=True):
+SHIM='''#!/bin/bash
+echo "$(basename $0) $*" >> "$SHIM_LOG"
+case "$(basename $0) $*" in
+ *run_combined.py*) if [ -n "$SHIM_HANG" ]; then trap 'echo run_combined_got_TERM >> "$SHIM_LOG"; kill $sp 2>/dev/null; exit 143' TERM; sleep 30 & sp=$!; wait $sp; fi; exit ${SHIM_RUN_EXIT:-0};;
+ *audit_evidence.py*) exit ${SHIM_AUDIT_EXIT:-0};;
+ *fallback_cleanup.py*) exit ${SHIM_CLEANUP_EXIT:-0};;
+ *minio_native_acceptance.py*) exit ${SHIM_ACCEPT_EXIT:-0};;
+esac
+exit 0
+'''
+def sh(*a,env=None,work=True,run_exit=0,audit_exit=0,locator=True,out_exists=True,popen=False):
  d=tempfile.mkdtemp();b=pathlib.Path(d)/'bin';b.mkdir();log=pathlib.Path(d)/'log'
  for n in ('python3','git','mvn'):
   f=b/n;f.write_text(SHIM);f.chmod(0o755)
@@ -10,11 +19,12 @@ def sh(*a,env=None,work=True,run_exit=0,audit_exit=0,locator=True,out_exists=Tru
  for c in ('certify','verify'):
   w.mkdir(exist_ok=True);(w/('native-'+c+'-classpath')).write_text('deps-'+c+'.jar')
  if locator:(w/'owned').mkdir(exist_ok=True);(w/'owned/locator.json').write_text('{}')
- e={'PATH':str(b)+':/usr/bin:/bin','SHIM_LOG':str(log),'JAVA_HOME':'/jdk','SHIM_RUN_EXIT':str(run_exit),'SHIM_AUDIT_EXIT':str(audit_exit)}
+ e={'PATH':str(b)+':/usr/bin:/bin','SHIM_LOG':str(log),'JAVA_HOME':'/jdk','SHIM_RUN_EXIT':str(run_exit),'SHIM_AUDIT_EXIT':str(audit_exit),'SHIM_HANG':''}
  if work:e['CONFORMANCE_WORK']=str(w)
  out=pathlib.Path(d)/'out'
  if out_exists:out.mkdir()
  e.update(env or {})
+ if popen:return subprocess.Popen(['bash',S,*a,'--output',str(out)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,env=e),log
  r=subprocess.run(['bash',S,*a,'--output',str(out)],capture_output=True,text=True,env=e)
  lines=log.read_text().splitlines() if log.exists() else []
  return r,lines
@@ -62,6 +72,27 @@ class CleanupAndStatus(unittest.TestCase):
   r,l=sh('--combined','--approve-runtime','--phase','cleanup',locator=False);self.assertEqual(r.returncode,0);self.assertEqual(l,[])
  def test_cleanup_phase_uses_exact_locator(self):
   r,l=sh('--combined','--approve-runtime','--phase','cleanup');self.assertIn('owned/locator.json',l[0]);self.assertEqual(len(l),1)
+class Lifecycle(unittest.TestCase):
+ def test_prepare_failure_keeps_exit_code_cleans_and_never_runs(self):
+  r,l=sh('--combined','--approve-runtime',env={'SHIM_ACCEPT_EXIT':'7'});self.assertEqual(r.returncode,7)
+  self.assertFalse(has(l,'run_combined.py'));self.assertTrue(has(l,'fallback_cleanup.py'));self.assertTrue(has(l,'audit_evidence.py'))
+ def test_prepare_failure_before_anything_started_does_not_audit_missing_dir(self):
+  r,l=sh('--combined','--approve-runtime',env={'SHIM_ACCEPT_EXIT':'7'},locator=False,out_exists=False);self.assertEqual(r.returncode,7);self.assertEqual(l and [x for x in l if 'fallback' in x or 'audit' in x],[])
+ def test_cleanup_failure_is_recorded_and_changes_only_a_zero_exit(self):
+  r,l=sh('--combined','--approve-runtime',env={'SHIM_CLEANUP_EXIT':'5'});self.assertEqual(r.returncode,2);self.assertIn('cleanup_failed',r.stderr);self.assertTrue(has(l,'audit_evidence.py'))
+  r,l=sh('--combined','--approve-runtime',run_exit=1,env={'SHIM_CLEANUP_EXIT':'5'});self.assertEqual(r.returncode,1);self.assertIn('cleanup_failed',r.stderr)
+ def test_audit_failure_after_failed_run_keeps_run_code(self):
+  r,l=sh('--combined','--approve-runtime',run_exit=3,audit_exit=1);self.assertEqual(r.returncode,3);self.assertIn('audit_failed',r.stderr)
+ def test_term_during_runtime_forwards_then_cleans_and_audits(self):
+  import signal,time
+  proc,log=sh('--combined','--approve-runtime',env={'SHIM_HANG':'1'},popen=True)
+  for _ in range(100):
+   if log.exists() and 'run_combined.py' in log.read_text():break
+   time.sleep(0.05)
+  time.sleep(0.3);proc.send_signal(signal.SIGTERM);out,err=proc.communicate(timeout=20);lines=log.read_text().splitlines()
+  self.assertEqual(proc.returncode,143);self.assertTrue(has(lines,'run_combined_got_TERM'))
+  idx=lambda k:[i for i,x in enumerate(lines) if k in x][0]
+  self.assertLess(idx('run_combined_got_TERM'),idx('fallback_cleanup.py'));self.assertLess(idx('fallback_cleanup.py'),idx('audit_evidence.py'))
 class Selection(unittest.TestCase):
  def test_run_combined_selection_table_fails_closed(self):
   import sys;sys.path.insert(0,str(ROOT/'rig-integration'));import run_combined as rc
@@ -71,6 +102,9 @@ class Selection(unittest.TestCase):
  def test_workflow_uses_the_script_not_a_copy(self):
   t=(ROOT/'.github/workflows/e2e-full-run.yml').read_text();j=t[t.index('  native-combined:'):]
   self.assertIn('run-full-stack-conformance.sh',j);self.assertNotIn('mvn -q',j);self.assertNotIn('rig-integration/run_combined.py',j);self.assertNotIn('git clone',j)
+  self.assertIn('native_component',t);self.assertIn('options: [both, certify, verify]',t);self.assertIn('${NATIVE_COMPONENT:-both}',j)
+  self.assertIn("native_component != 'certify' && secrets.GITHUB_TOKEN || ''",j);self.assertIn("--approve-runtime $PH",j)
+  import yaml;d=yaml.safe_load(t);i=d[True]['workflow_dispatch']['inputs']['native_component'];self.assertEqual((i['default'],i['options'],i['required']),('both',['both','certify','verify'],False));self.assertEqual(d['jobs']['native-combined']['permissions'],{'contents':'read'})
 class MainFailsClosedBeforeAnyStack(unittest.TestCase):
  def test_missing_classpath_for_selected_component_and_bad_selection(self):
   import sys,types;sys.path.insert(0,str(ROOT/'rig-integration'));import run_combined as rc

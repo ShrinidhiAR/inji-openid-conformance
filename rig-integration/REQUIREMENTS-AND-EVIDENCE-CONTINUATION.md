@@ -70,4 +70,12 @@ Coverage gaps kept explicit: --component certify|verify single orchestration uni
   Certify-only never waits for a review (the job sees the attempt end first).
 - Tests (`rig-integration/tests/test_entrypoint.py`) shim every external command and check argv, component routing, phase isolation,
   cleanup-after-failure ordering, exit status propagation, and that the workflow no longer repeats the orchestration steps.
-- Condition diagnostics may now carry `requirements`: suite-authored spec reference ids (for example OID4VCI-1FINAL-8.3), shape-checked and capped, never free text.
+- Condition diagnostics may now carry `requirements`: only exact members of the pinned scripts/requirement_ids.txt (spec ids found as literals in the pinned suite source, reproducible by scripts/build_requirement_ids.py), capped at 4; anything else is dropped.
+
+Scope note for single-component modes: selecting `--component certify` or `--component verify` selects which native happy-flow test runs. It does
+NOT deploy that service alone. The same owned synthetic stack (Certify, Verify, eSignet, mock identity, suite, MinIO, TLS gateway) is booted in every
+mode, so a single-component result is a selected test on the shared stack, not an isolated single-service deployment.
+
+Lifecycle of the default `--phase all` path: an EXIT/TERM/INT handler always runs the exact-owned fallback cleanup (recorded locator only, no broad
+pruning) and audits whatever evidence directory exists, after a prepare failure, a run failure or a signal. The original exit code is preserved; a cleanup
+or audit failure is reported on stderr and only changes an otherwise zero exit to 2. A TERM is forwarded to the owned run first so its own cleanup runs.
