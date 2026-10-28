@@ -10,11 +10,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "full = normal stages; alpha-smoke = ONLY the bounded alpha boot smoke"
+        description: "full = normal stages; alpha-smoke = readiness only; alpha-direct = one Bearer issuance only"
         required: false
         default: "full"
         type: choice
-        options: [full, alpha-smoke]
+        options: [full, alpha-smoke, alpha-direct]
 
 # experimental branch: only the newest push's run matters
 concurrency:
@@ -26,7 +26,7 @@ jobs:
     name: Stage 1 - conformance suite boots and serves both plans
     # gated to manual dispatch while the eSignet 1.8.0 swap is validated by
     # stages 2-3 (evidence-only push runs); re-enable for push once green
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode != 'alpha-smoke'
+    if: github.event_name == 'workflow_dispatch' && (github.event.inputs.mode == 'full' || github.event.inputs.mode == '')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -86,7 +86,7 @@ jobs:
 
   stage2-esignet:
     name: Stage 2 - local eSignet stack + scripted auth-code flow
-    if: github.event.inputs.mode != 'alpha-smoke'
+    if: (github.event.inputs.mode == 'full' || github.event.inputs.mode == '')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -149,7 +149,7 @@ jobs:
 
   stage3-certify:
     name: Stage 3 - local certify (mDL) + eSignet direct issuance
-    if: github.event.inputs.mode != 'alpha-smoke'
+    if: (github.event.inputs.mode == 'full' || github.event.inputs.mode == '')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: []
@@ -214,7 +214,7 @@ jobs:
     # only after the stage3 integrity check (issuance + COSE/MSO verification)
     # passes in the same workflow run. Driver: classic eSignet 1.8.0 REST +
     # PAR bridge (esignet_classic.py), no Go /flow/execute API.
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode != 'alpha-smoke'
+    if: github.event_name == 'workflow_dispatch' && (github.event.inputs.mode == 'full' || github.event.inputs.mode == '')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     needs: [stage3-certify]
@@ -294,7 +294,7 @@ jobs:
   stage5-verify:
     name: Stage 5 - local Inji Verify + VP plan discovery
     # gated with stage4 during the 1.8.0 swap validation
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode != 'alpha-smoke'
+    if: github.event_name == 'workflow_dispatch' && (github.event.inputs.mode == 'full' || github.event.inputs.mode == '')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -365,4 +365,32 @@ jobs:
           name: alpha-boot-smoke
           path: smoke-out/
           if-no-files-found: warn
+          retention-days: 1
+
+  alpha-direct-issuance:
+    name: Alpha Final direct Bearer issuance (not suite conformance)
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'alpha-direct'
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install direct-only dependencies
+        run: pip install requests cryptography cbor2 PyJWT pyyaml
+      - name: Local secret-safe harness tests
+        run: cd smoke/alpha-direct && python3 -m unittest -v test_local
+      - name: Exactly one synthetic direct issuance
+        run: python3 smoke/alpha-direct/run_once.py
+      - name: Upload allowlisted public evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpha-direct-public-evidence
+          path: |
+            alpha-direct-out/test-issuer-anchor.pem
+            alpha-direct-out/issuance-result.json
+            alpha-direct-out/exception-causes.json
+            alpha-direct-out/last-stage.json
+            alpha-direct-out/failure.json
+            alpha-direct-out/cleanup.json
+          if-no-files-found: error
           retention-days: 1
