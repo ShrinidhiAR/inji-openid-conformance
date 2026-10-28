@@ -1,5 +1,16 @@
 # MOSIP Inji OpenID Conformance Automation
 
+> Experimental branch status, 2026-10-28: this is not yet the completed whole-project
+> demo. Real direct Bearer issuance/integrity passed. Two real selected official
+> issuer modules failed and were truthfully reported by standalone MOSIP/TestNG.
+> Full per-module api-testrig, MinIO, Verify and combined execution remain unproved.
+> The old generic CLI below used an invalid lifecycle and has been replaced locally.
+> Its new existing-environment entrypoint requires explicit configs/variants and
+> fails closed on a browser handoff without a supported adapter. Do not treat the
+> historical quick start below as a verified whole-stack command. See
+> `rig-integration/NEXT-MILESTONE.md` for the source-grounded remaining work.
+
+
 Automated local execution and CI/CD pipeline integration for MOSIP Inji Certify (OpenID4VCI) and Verify (OpenID4VP) components using the official OpenID Foundation Conformance Suite.
 
 ## Table of Contents

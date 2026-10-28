@@ -1,0 +1,8 @@
+{
+  "image": "injistack/inji-verify-service@sha256:cb3f8d6720924a69ba4e8c37d9b531630aa219a16192d4f56ed9895788a5cf73",
+  "config_digest": "sha256:e8f53083aad173fef78008d30bc0a642dae362bfb3c86c5633a62be15ccc9bde",
+  "source_commit_expected": "4c4289026968beb535d3dbdd500947152c43f708",
+  "source_commit_verified_from_image": true,
+  "source_evidence": "OCIconfig labels and extracted published jar git.properties agree",
+  "tag": "1.0.0-alpha.1"
+}

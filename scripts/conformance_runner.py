@@ -1,193 +1,98 @@
-"""Programmatic runner for the OpenID Foundation Conformance Suite.
+"""Pinned official automation library + bounded, fail-closed project orchestration.
 
-Drives the suite's REST API to create a test plan for Inji Certify (OpenID4VCI
-issuer) and/or Inji Verify (OpenID4VP verifier), run every test module in the
-plan, poll each module until it finishes, and write a JSON summary that can be
-consumed by a TestNG / ExtentReports test rig.
-
-Usage:
-    python scripts/conformance_runner.py --component certify
-    python scripts/conformance_runner.py --component verify
-    python scripts/conformance_runner.py --combined
+No raw API config/log/error is written. A missing handoff remains a harness error,
+never a product verdict. Existing environments require explicit JSON configuration.
+Provisioned synthetic stacks use their own adapters and verified TLS CA.
 """
-import os
-import sys
-import time
-import json
-import uuid
-import argparse
-import urllib.parse
-from datetime import datetime, timezone
-import requests
+import argparse,asyncio,contextlib,datetime,hashlib,importlib.util,json,pathlib,re,sys,time,uuid
+ROOT=pathlib.Path(__file__).resolve().parents[1]
+LIB=ROOT/'vendor/openid-suite/conformance.py'
+SHA='660214cc6ca9b3c09297f61908a575db7b1552e8f44eecd5740d1c27fa2cfca8'
+PLANS={'certify':'oid4vci-1_0-issuer-test-plan','verify':'oid4vp-1final-verifier-test-plan'}
+STATES={'NOT_YET_CREATED','CREATED','CONFIGURED','RUNNING','WAITING','FINISHED','INTERRUPTED'}
+RESULTS={'PASSED','FAILED','WARNING','REVIEW','SKIPPED','UNKNOWN',None}
+class HarnessError(RuntimeError):pass
+class Sink:
+ def write(self,value):return len(value)
+ def flush(self):pass
 
-# Base URL of the conformance suite REST API (started by docker/docker-compose.yml).
-DEFAULT_BASE_URL = "http://localhost:8080/api"
+def official(base,ca):
+ if hashlib.sha256(LIB.read_bytes()).hexdigest()!=SHA:raise HarnessError('official_library_integrity')
+ spec=importlib.util.spec_from_file_location('pinned_conformance',LIB);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+ return module.Conformance(base,None,ca or True)
 
-# One shared HTTP session so headers are applied to every request.
-session = requests.Session()
-# The suite is served over plain HTTP locally; X-Forwarded-Proto makes it behave as if behind HTTPS.
-session.headers.update({
-    "Content-Type": "application/json",
-    "X-Forwarded-Proto": "https"
-})
+def check(ok,category):
+ if not ok:raise HarnessError(category)
+def identifier(value):
+ check(isinstance(value,str) and re.fullmatch('[A-Za-z0-9]{8,32}',value),'suite_identifier');return value
+def atomic(path,document):
+ path=pathlib.Path(path);path.parent.mkdir(parents=True,exist_ok=True);tmp=path.with_suffix(path.suffix+'.tmp');tmp.write_text(json.dumps(document,indent=2));tmp.replace(path)
 
-# Variant selection for the OID4VCI issuer plan (sent as the "variant" query parameter).
-# Each key picks one option of a test-plan dimension in the conformance suite.
-CERTIFY_VARIANTS = {
-    "fapi_profile": "vci",
-    "credential_format": "sd_jwt_vc",
-    "client_auth_type": "private_key_jwt",
-    "sender_constrain": "dpop",
-    "vci_authorization_code_flow_variant": "wallet_initiated",
-    "vci_credential_encryption": "plain",
-    "vci_grant_type": "authorization_code",
-    "authorization_request_type": "simple",
-    "fapi_request_method": "unsigned"
-}
+class Runner:
+ def __init__(self,client,timeout=300,handoff=None):self.client=client;self.timeout=timeout;self.handoff=handoff
+ async def call(self,method,*args):
+  # Upstream exceptions may contain config, token or error bodies. Never forward them.
+  try:
+   with contextlib.redirect_stdout(Sink()),contextlib.redirect_stderr(Sink()):return await asyncio.wait_for(method(*args),timeout=min(self.timeout,30))
+  except Exception:raise HarnessError('suite_api_failure') from None
+ async def run(self,component,configuration,variant,selected=None,checkpoint=None):
+  plan=await self.call(self.client.create_test_plan,PLANS[component],json.dumps(configuration),variant)
+  pid=identifier(plan.get('id'));check(plan.get('name')==PLANS[component],'created_plan_name')
+  entries=plan.get('modules');check(isinstance(entries,list) and bool(entries),'empty_plan')
+  names=[x.get('testModule') for x in entries if isinstance(x,dict)];check(len(names)==len(entries) and all(isinstance(x,str) for x in names),'module_list')
+  check(len(names)==len(set(names)),'variant_expansion_requires_explicit_adapter');check(not selected or set(selected)<=set(names),'selected_modules_unknown')
+  requested=selected or names;rows=[]
+  for name in requested:
+   module=await self.call(self.client.create_test_from_plan,pid,name);mid=identifier(module.get('id'));check(module.get('name')==name,'created_module_name')
+   await self.call(self.client.start_test,mid)
+   row={'module':name,'test_id':mid,'status':'HARNESS_TIMEOUT','result':None};deadline=time.monotonic()+self.timeout
+   try:
+    while time.monotonic()<deadline:
+     info=await self.call(self.client.get_module_info,mid)
+     check(info.get('testId')==mid and info.get('testName')==name and info.get('status') in STATES and info.get('result') in RESULTS,'module_info')
+     status=info['status']
+     if status in {'FINISHED','INTERRUPTED'}:row.update(status=status,result=info.get('result'));break
+     if status=='WAITING':
+      check(self.handoff is not None,'handoff_unavailable')
+      try:await asyncio.wait_for(self.handoff(component,mid,self.client),timeout=min(self.timeout,60))
+      except Exception:raise HarnessError('handoff_incomplete_or_failed') from None
+     await asyncio.sleep(0.25)
+   except HarnessError as e:row.update(status='HARNESS_ERROR',harness_category=str(e),result=None)
+   rows.append(row)
+   if checkpoint:checkpoint(rows)
+  return {'plan_id':pid,'requested':requested,'coverage':'selected modules' if selected else 'created plan module names','rows':rows}
 
-# The verifier plan is run with the suite's default variants.
-VERIFY_VARIANTS = {}
+def gate(rows):return bool(rows) and all(x.get('status')=='FINISHED' and x.get('result')=='PASSED' for x in rows)
+async def execute(args):
+ output=pathlib.Path(args.output);output.unlink(missing_ok=True);output.with_suffix(output.suffix+'.tmp').unlink(missing_ok=True)
+ doc={'run':{'id':args.run_id or str(uuid.uuid4()),'started_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'tool':'pinned official library + bounded project runner','evidence':'suite API responses from configured target; deployment provenance checked separately'},'plans':{}}
+ client=official(args.base_url,args.ca_file);handoffs=None
+ if args.synthetic_handoffs:
+  check(args.ca_file and args.evidence_dir and args.base_url=='https://suite:8443','synthetic_handoff_scope')
+  pathlib.Path(args.evidence_dir).mkdir(parents=True,exist_ok=True)
+  from handoffs import Handoffs
+  handoffs=Handoffs(args,{})
+ try:
+  for component in (['certify','verify'] if args.combined else [args.component]):
+   config_file=getattr(args,component+'_config');check(config_file is not None,'explicit_configuration_required')
+   configuration=json.loads(pathlib.Path(config_file).read_text(encoding='utf-8-sig'));variant=json.loads(pathlib.Path(getattr(args,component+'_variants')).read_text()) if getattr(args,component+'_variants') else {}
+   def save(rows):doc[component]=rows;atomic(output,doc)
+   if handoffs:handoffs.configs[component]=configuration
+   result=await Runner(client,args.module_timeout,handoffs).run(component,configuration,variant,args.module,save)
+   doc[component]=result.pop('rows');doc['plans'][component]=result;atomic(output,doc)
+ finally:
+  await client.close_client()
+  if handoffs:await handoffs.close()
+ return 0 if all(gate(doc.get(c,[])) for c in (['certify','verify'] if args.combined else [args.component])) else 1
 
-# Poll GET /plan until the suite answers 200, so we do not start before it has booted.
-# Raises TimeoutError after `timeout` seconds.
-def wait_for_server(base_url, timeout=90):
-    start = time.time()
-    print(f"[INFO] Waiting for Conformance Suite at {base_url}...")
-    while time.time() - start < timeout:
-        try:
-            res = session.get(f"{base_url}/plan")
-            if res.status_code == 200:
-                print("[INFO] Conformance suite is up and running.")
-                return True
-        except requests.RequestException:
-            pass
-        time.sleep(3)
-    raise TimeoutError(f"Conformance suite at {base_url} did not become ready in {timeout}s.")
-
-# Create a test plan via POST /plan, uploading the JSON config file for the system under test.
-# Returns (plan_id, list_of_test_modules).
-def create_plan(base_url, plan_name, config_path, variants=None):
-    # utf-8-sig tolerates a BOM (Windows PowerShell writes one when creating files).
-    with open(config_path, "r", encoding="utf-8-sig") as f:
-        config_data = json.load(f)
-
-    # The plan name is a query parameter; variants are URL-encoded JSON.
-    url = f"{base_url}/plan?planName={plan_name}"
-    if variants:
-        v_str = urllib.parse.quote(json.dumps(variants))
-        url += f"&variant={v_str}"
-
-    response = session.post(url, json=config_data)
-    response.raise_for_status()
-    # Different suite versions return the plan id as "id" or "_id".
-    plan_info = response.json()
-    plan_id = plan_info.get("id") or plan_info.get("_id")
-    print(f"[INFO] Created test plan: {plan_id} for {plan_name}")
-    return plan_id, plan_info.get("modules", [])
-
-# Start one test module of a plan via POST /runner, then poll GET /log/{test_id}
-# until it reaches a terminal state. Returns a small dict with the outcome.
-def run_test_module(base_url, plan_id, test_module_name):
-    url = f"{base_url}/runner?test={test_module_name}&plan={plan_id}"
-    res = session.post(url)
-    res.raise_for_status()
-    test_info = res.json()
-    test_id = test_info.get("id") or test_info.get("_id")
-    print(f"\n[INFO] Running module {test_module_name} (ID: {test_id})...")
-
-    # Poll every 3 seconds. Note: there is no overall timeout here; a module that
-    # waits for manual interaction will keep this loop running.
-    while True:
-        status_res = session.get(f"{base_url}/log/{test_id}")
-        if status_res.status_code == 200:
-            status_data = status_res.json()
-            status = status_data.get("status")
-            result = status_data.get("result")
-
-            # Terminal condition: terminal STATUS only. Per the suite's
-            # TestModule.java, Status is the lifecycle (CONFIGURED/RUNNING/WAITING/
-            # INTERRUPTED/FINISHED) and Result is the verdict (PASSED/FAILED/
-            # WARNING/REVIEW/SKIPPED/UNKNOWN) - REVIEW is a result, not a status.
-            # The suite's own automation library waits on status alone, so a
-            # result value is only trusted once the status is terminal. INTERRUPTED
-            # ("stopped before completion") is terminal: the outcome is recorded
-            # and the benchmark gate fails it.
-            if status in ["FINISHED", "INTERRUPTED"]:
-                print(f"[RESULT] {test_module_name} -> Status: {status}, Result: {result}")
-                return {
-                    "module": test_module_name,
-                    "test_id": test_id,
-                    "status": status,
-                    "result": result
-                }
-        time.sleep(3)
-
-# Entry point: parse arguments, build the list of plans to run, execute them, save results.
 def main():
-    parser = argparse.ArgumentParser(description="Programmatic OpenID Conformance Runner")
-    parser.add_argument("--component", choices=["certify", "verify"], help="Component to test")
-    parser.add_argument("--combined", action="store_true", help="Run both certify and verify")
-    parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Base API URL")
-    parser.add_argument("--output", default="conformance-results.json", help="Output JSON path")
-    parser.add_argument("--run-id", default=None, help="Run identifier stamped into the output (default: generated UUID)")
-    args = parser.parse_args()
-
-    # Remove any previous output before starting: a crashed or interrupted run
-    # must leave no results file behind, so a later gate run can never pass on
-    # output from an earlier execution.
-    for stale in (args.output, args.output + ".tmp"):
-        if os.path.exists(stale):
-            os.remove(stale)
-
-    # Block until the suite is reachable.
-    wait_for_server(args.base_url)
-
-    # Each entry: (component name, suite plan name, config file, variants).
-    plans_to_run = []
-    if args.combined:
-        plans_to_run = [
-            ("certify", "oid4vci-1_0-issuer-test-plan", "docker/configs/certify-issuer-config.json", CERTIFY_VARIANTS),
-            ("verify", "oid4vp-1final-verifier-test-plan", "docker/configs/verify-verifier-config.json", VERIFY_VARIANTS)
-        ]
-    elif args.component == "certify":
-        plans_to_run = [("certify", "oid4vci-1_0-issuer-test-plan", "docker/configs/certify-issuer-config.json", CERTIFY_VARIANTS)]
-    elif args.component == "verify":
-        plans_to_run = [("verify", "oid4vp-1final-verifier-test-plan", "docker/configs/verify-verifier-config.json", VERIFY_VARIANTS)]
-        # Neither --component nor --combined was given.
-    else:
-        print("[ERROR] Please specify --component [certify|verify] or --combined")
-        sys.exit(1)
-
-
-    # Maps component name -> list of per-module results. A "run" block records
-    # when this output was produced; the api-testrig bridge refuses to gate on a
-    # results file without a fresh timestamp, so a stale file from an older run
-    # cannot pass the benchmark.
-    run_started_at = datetime.now(timezone.utc)
-    all_results = {"run": {
-        "id": args.run_id or str(uuid.uuid4()),
-        "started_at": run_started_at.isoformat(),
-        "tool": "conformance_runner.py"
-    }}
-    for comp, plan_name, config_file, variants in plans_to_run:
-        print(f"\n================ Starting {comp.upper()} Plan ================")
-        plan_id, modules = create_plan(args.base_url, plan_name, config_file, variants)
-        comp_results = []
-        for mod in modules:
-            # Modules may be returned as dicts ({"testModule": ...}) or plain names.
-            mod_name = mod.get("testModule") if isinstance(mod, dict) else mod
-            res = run_test_module(args.base_url, plan_id, mod_name)
-            comp_results.append(res)
-        all_results[comp] = comp_results
-
-    # Write the summary file atomically (default: conformance-results.json, which
-    # is git-ignored): a crash mid-write can never leave a truncated file that a
-    # later gate run might mistake for complete results.
-    tmp_output = args.output + ".tmp"
-    with open(tmp_output, "w", encoding="utf-8") as out:
-        json.dump(all_results, out, indent=2)
-    os.replace(tmp_output, args.output)
-    print(f"\n[INFO] All results written to {args.output} (run id {all_results['run']['id']})")
-
-if __name__ == "__main__":
-    main()
+ p=argparse.ArgumentParser(description=__doc__);mode=p.add_mutually_exclusive_group(required=True);mode.add_argument('--component',choices=PLANS);mode.add_argument('--combined',action='store_true')
+ p.add_argument('--base-url',default='https://suite:8443');p.add_argument('--ca-file');p.add_argument('--output',default='conformance-results.json');p.add_argument('--run-id');p.add_argument('--synthetic-handoffs',action='store_true');p.add_argument('--evidence-dir');p.add_argument('--module-timeout',type=int,default=300);p.add_argument('--module',action='append')
+ for c in PLANS:p.add_argument('--'+c+'-config');p.add_argument('--'+c+'-variants')
+ args=p.parse_args()
+ sys.modules['conformance_runner']=sys.modules[__name__]
+ try:
+  check(args.module_timeout>0,'timeout_positive')
+  return asyncio.run(execute(args))
+ except Exception as e:print('HARNESS_ERROR '+(str(e) if isinstance(e,HarnessError) else 'configuration_or_transport_failure'),file=sys.stderr);return 2
+if __name__=='__main__':sys.exit(main())

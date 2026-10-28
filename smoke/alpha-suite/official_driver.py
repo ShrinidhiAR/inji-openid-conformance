@@ -47,10 +47,7 @@ class Driver:
   r=self.s.post(target,data='',headers={'Content-Type':'text/plain'},timeout=30,allow_redirects=False)
   require(r.status_code==204,'implicit_submit_status_contract')
 
- def run(self,out,run_id,started):
-  info=plan_info(self.api('GET',PLAN_ROUTE).json())
-  actual_senders=set(info['variants']['sender_constrain']['variantValues'])
-  (out/'plan-verification.json').write_text(json.dumps({'plan':info.get('planName'),'certifiable':info.get('certifiable'),'sender_constraints':sorted(actual_senders),'selected':MODULES,'image_lock_verified':True},indent=2))
+ def configuration(self,out):
   clients=[]
   for i in (1,2):
    cid='alpha-suite-'+str(i)+'-'+uuid.uuid4().hex[:8];_,pub,priv=gen_client_key()
@@ -58,6 +55,13 @@ class Driver:
    if r.get('clientId')!=cid:raise ProtocolFailure('registration mismatch')
    clients.append({'client_id':cid,'jwks':{'keys':[priv]}})
   cfg={'alias':ALIAS,'description':'Bounded real alpha issuer checks, synthetic TEST only','vci':{'credential_issuer_url':CERTIFY,'authorization_server':AS,'credential_configuration_id':'DrivingLicenseCredential','credential_proof_type_hint':'jwt'},'credential':{'trust_anchor_pem':(out/'mdoc-test-iaca.pem').read_text()},'client':clients[0],'client2':clients[1]}
+  return cfg
+
+ def run(self,out,run_id,started):
+  info=plan_info(self.api('GET',PLAN_ROUTE).json())
+  actual_senders=set(info['variants']['sender_constrain']['variantValues'])
+  (out/'plan-verification.json').write_text(json.dumps({'plan':info.get('planName'),'certifiable':info.get('certifiable'),'sender_constraints':sorted(actual_senders),'selected':MODULES,'image_lock_verified':True},indent=2))
+  cfg=self.configuration(out)
   plan=self.api('POST','/api/plan',expected=201,params={'planName':PLAN,'variant':json.dumps(VARIANT)},json=cfg).json();pid=created_plan(plan)
   if not pid:raise ProtocolFailure('no plan ID')
   rows=[];conditions={}

@@ -1,0 +1,4 @@
+<suite name="Isolated native api-test conformance suite">
+ <listeners><listener class-name="io.mosip.testrig.apirig.report.EmailableReport"/></listeners>
+ <test name="Official conformance outcomes"><classes><class name="inji.conformance.OpenIDConformanceTest"/></classes></test>
+</suite>

@@ -7,11 +7,14 @@ from run_once import bundle
 from tls_config import tls,augment,CERTIFY,AS
 from mdoc_signer import provision
 
-def prepare_suite(out,java_home):
+def prepare_suite(out,java_home,include_verify=False):
  out=pathlib.Path(out);out.mkdir(exist_ok=False);private,_=prepare(ROOT/'smoke/alpha-init/config',out)
  # Discard selfsigned baseline public cert; new suite uses independent TEST IACA+leaf.
  (out/'test-issuer-anchor.pem').unlink()
- provision(private/'config',out);tls(private,out,java_home)
+ provision(private/'config',out)
+ names=('certify.local.test','esignet.local.test','suite','verify.local.test') if include_verify else ('certify.local.test','esignet.local.test','suite')
+ targets=('certify-app:8090','esignet-gateway:8088','suite-server:8080','verify-app:8080') if include_verify else None
+ tls(private,out,java_home,names,targets)
  p=private/'config/certify-default.properties';lines=p.read_text().splitlines()
  values={'mosip.certify.domain.url':CERTIFY,'mosip.certify.authorization.url':AS,'mosip.certify.authn.issuer-uri':AS,'mosip.certify.authn.jwk-set-uri':AS+'/v1/esignet/oauth/.well-known/jwks.json','mosip.certify.authn.allowed-audiences':"{ '"+AS+"/v1/esignet/vci/credential' }"}
  for key,value in values.items():

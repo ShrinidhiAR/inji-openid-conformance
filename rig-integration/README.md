@@ -1,72 +1,80 @@
-# Running the conformance bridge inside each module's own api-testrig
+# Isolated native component api-test integration
 
-The problem statement's default mode is per-module: Inji Certify's conformance
-results run inside Inji Certify's api-testrig, and Inji Verify's inside Inji
-Verify's. This folder documents how to drop the bridge into either rig so the
-results land in that rig's normal TestNG/EmailableReport report (and its S3/MinIO
-upload, when the rig is configured for it).
+LOCAL IMPLEMENTATION, NOT YET LIVE PRODUCT OR MINIO VALIDATED.
 
-The bridge test class is plain TestNG plus `org.json` (both rigs already depend on
-`com.github.openjson:openjson`) and needs none of the rig's MOSIP-environment setup
-(Keycloak, PMS, DB). It only reads the JSON produced by `scripts/conformance_runner.py`.
+Do not run normal InjiTestRunner.main to test this integration. Its normal startup
+can create users, change accounts and clean a database, and its process exitcode
+is not a reliable test gate. Earlier instructions that copied the bridge into an
+ordinary suite directory then launched the rig JAR were unsafe and are replaced
+by this conformance-only mode.
 
-## Inji Certify (issuer plan)
+## What is implemented
 
-1. Clone the rig: `git clone https://github.com/mosip/inji-certify` (the
-   `api-test/` folder is the rig; the problem statement's link
-   `github.com/inji/inji-certify` redirects to the MOSIP org).
-2. Copy the test class into the rig:
+- stage_isolated.py checks exact upstream commit and clean tracked api-test files,
+  then copies only api-test to a NEW temporary directory. Originals stay untouched.
+- Exactly one master suite, one project testclass and the native EmailableReport
+  listener are allowed. Extra suites/classes/listeners fail before discovery.
+- Project IsolatedRigLauncher compiles inside each real componentclasspath and
+  calls native startTestRunner, never main, suiteSetup or BaseTestCase.initialize.
+- @BeforeSuite invokes the pinned official Pythonlibrary through the projectrunner
+  with fresh runid, same component endpoint, explicit configuration and CA.
+- Native TestNG XML independently gates failure, skip, empty and configuration
+  failure. WARNING and REVIEW never satisfy this isolated benchmark.
+- Slack disabled. Optional private localS3properties permit only loopbackendpoint
+  and automationtests bucket, nativeupload plus independent bytehashreadback.
+  This S3 branch is compiled, NOT runtimeMinIOvalidated. Keep private nativelogs:
+  upstream S3Adapter can log accesskeys. Surround JVM with an external timeout.
 
-   ```powershell
-   copy apitestrig-bridge\src\main\java\inji\conformance\ConformanceResultsTest.java `
-        inji-certify\api-test\src\main\java\inji\conformance\ConformanceResultsTest.java
-   ```
+## Stage and compile
 
-3. Copy the suite file into the rig's `testNgXmlFiles` folder. The rig's
-   `InjiTestRunner` runs every file there whose name contains "mastertestsuite":
+Requires Python3 with scripts/requirements.txt, JDK21, Maven, clean exactpinned
+upstream source (pins in stage_isolated.py). The destination must not exist.
 
-   ```powershell
-   copy apitestrig-bridge\src\main\resources\testNgXmlFiles\conformanceCertifyMasterTestSuite.xml `
-        inji-certify\api-test\testNgXmlFiles\
-   ```
+```sh
+python3 rig-integration/stage_isolated.py --component certify \
+  --upstream /path/to/pinned-certify --destination /tmp/certify-conformance-rig
+mvn -f /tmp/certify-conformance-rig/pom.xml -DskipTests \
+  -Dgpg.skip=true -Dmaven.gitcommitid.skip=true compile dependency:build-classpath \
+  -Dmdep.outputFile=/tmp/certify-conformance-classpath
+```
 
-4. Run the conformance harness first, so there is a results file:
+Repeat with component verify and its pinned source. No runtime is started above.
 
-   ```powershell
-   python scripts\conformance_runner.py --component certify --output conformance-results.json
-   ```
+## Local fixture acceptance, not product evidence
 
-5. Build and run the rig the way its own README describes (`mvn clean install
-   -Dgpg.skip=true -Dmaven.gitcommitid.skip=true`, then run the generated JAR),
-   adding the two bridge properties to the run (the rig's own `env.*` properties
-   are still needed for its normal startup):
+```sh
+python3 rig-integration/tests/native_fixture_prototype.py --component certify \
+  --rig-classpath "/tmp/certify-conformance-rig/target/classes:$(cat /tmp/certify-conformance-classpath)"
+```
 
-   ```powershell
-   java -Dconformance.results=<absolute path>\conformance-results.json `
-        -Dconformance.component=certify `
-        -jar inji-certify\api-test\target\apitest-injicertify-*.jar
-   ```
+This creates a temporary fake HTTPsuite and calls actual native discovery,
+BeforeSuite officiallibrary and reportgeneration. It checks1FAILEDfixturemodule
+becomes realTestNG1failedrow and launcherexit1. The fake endpoint is explicitly
+fixtureOnly loopback; default launcher mode accepts only https://suite:8443.
+Repeat for Verify with its actualcompiledclasspath. Native guardtests use
+NATIVE_RIG_TEST_CP and optional JAVA environment variables.
 
-   `InjiTestRunner` picks up `conformanceCertifyMasterTestSuite.xml` because its
-   file name contains "mastertestsuite", and the conformance outcomes appear in
-   the rig's normal report output.
+Real invocation needs an audited private invocationmanifest/config, disposable
+HTTPS endpoints and a wired handoffadapter. The generic runner currently rejects
+WAITING without an adapter as HARNESS_ERROR. These staging commands are not the
+finished whole-stack demo command. No full normal APIregression is claimed.
 
-## Inji Verify (verifier plan)
+## Reports
 
-Same steps against `https://github.com/mosip/inji-verify`, using
-`conformanceVerifyMasterTestSuite.xml` and `-Dconformance.component=verify`.
+Native original reports remain unchanged. Inspected fixture reports show correct
+1total/0pass/1fail, nativeclass and component/moduleID. Their header embeds the
+upstream DEPENDENCYgitmetadata, not componentimageprovenance, and longstacktraces
+clip. Use project-owned report_summary.py and explicit deploymentprovenance next
+to originals; never present nativeheadercommit as the tested productcommit.
 
-## Notes and honest caveats
+See NEXT-MILESTONE.md and VERIFY-CONTRACT-AUDIT.md for the current unfinished
+integration, sourcecontracts and required approval checkpoint before remote runs.
 
-* The suite XMLs register MOSIP's `EmailableReport` listener. When run inside the
-  real rig, the rig's own `InjiTestRunner` setup provides the environment labels
-  and configuration the listener needs; the S3/MinIO upload happens only when the
-  rig is configured with `push-reports-to-s3=yes` and valid MinIO credentials, as
-  with any api-testrig run.
-* We verified the bridge end to end with `EmailableReport` outside the full rig
-  (see the main README, verification status). Execution inside `InjiTestRunner`
-  with a full MOSIP environment is documented here but was not run by us.
-* `benchmark.allowWarnings` and `--min-pass-rate` behave the same inside the rig;
-  the standalone runner's build-gating exit code is provided by
-  `ConformanceBridgeRunner`, so inside the rig use the standard TestNG result
-  (failed tests fail the rig's build) as the gate.
+## Later local checkpoint
+
+The optionalnativeS3 branch now has realMinIOlocalacceptance for BOTHcomponents,
+with fakeHTTPsuite outcomes. Exactofficialsource+archivehash build_minio.py,
+local_minio.py provenancecheck and tests/minio_native_acceptance.py reproduce it.
+Earlier compiled-onlycaveat remains true historically, not currentlocalpath.
+Combined prepare/runtimeentry and boundedproposal now exist; runtimeentryUNRUN.
+See BOUNDED-RUN-PROPOSAL.md. Do not launch from these notes without review.

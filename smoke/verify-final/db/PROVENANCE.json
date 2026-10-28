@@ -1,0 +1,11 @@
+{
+  "source_commit": "4c4289026968beb535d3dbdd500947152c43f708",
+  "source_directory": "db_scripts/inji_verify/ddl",
+  "files_sha256": {
+    "verify-authorization_request_details.sql": "3ad85d80a8fb0fed074cfeef461aa71157ebbe2ffb508a5e2f159ccaf5b94289",
+    "verify-presentation_definition.sql": "ca03b50185ed9224fb5e6c0ada48368b8e7db43ab2adbfe269c1d1ab4f08bb54",
+    "verify-vc_submission.sql": "3ff73aa9421f31ae55a27ba5532d90d0ffe8f53d66e428f7428e0e14bbdb74eb",
+    "verify-vp_submission.sql": "4a5401e4de6c11561d9f3e54a7148c7f0e11df7cee3a926815eaf88a15407067"
+  },
+  "scope": "unchanged upstream table DDL; fresh isolated schema only"
+}

@@ -20,3 +20,6 @@ apitestrig-bridge/src/logs/
 smoke/alpha-direct/java-contract/target/
 alpha-direct-out/
 alpha-suite-out/
+
+# Run-scoped native combined evidence, never publish without audit
+combined-conformance-out/
