@@ -1,6 +1,6 @@
 # Isolated native component api-test integration
 
-STATUS 2026-10-28: the native rig, local MinIO upload and the combined/one-command entry now have hosted-runner runs (Certify-only default-all path proven; combined Certify + Verify via the phased workflow: Certify FAILED, Verify REVIEW). See the top-level README. Verify-only via the one-command script and full official plans are untested. The older notes below describe the design and are kept as written.
+STATUS 2026-10-28: the native rig, local MinIO upload and the combined/one-command entry now have hosted-runner runs (Certify-only default-all path proven; combined Certify + Verify via the phased workflow and via the single default-all `--combined` command, run 40651319058: Certify FAILED, Verify REVIEW). See the top-level README. Verify-only via the one-command script and full official plans are untested. The older notes below describe the design and are kept as written.
 
 Do not run normal InjiTestRunner.main to test this integration. Its normal startup
 can create users, change accounts and clean a database, and its process exitcode

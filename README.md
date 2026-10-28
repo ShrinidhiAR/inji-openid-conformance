@@ -13,8 +13,9 @@
 >   Result: the suite module `oid4vci-1_0-issuer-happy-flow` ended INTERRUPTED/FAILED. The suite's
 >   `EnsureHttpStatusCodeIsAnyOf` check failed (requirement `OID4VCI-1FINAL-8.3`, the credential endpoint response status check). The root cause in the product or the
 >   configuration is **not established**. This is a recorded benchmark outcome, not a harness fault.
-> * **Combined Certify + Verify** through the phased workflow (`native_component=both`): Certify as above; Verify ended
->   FINISHED with verdict **REVIEW** (conditions `ExpectVerifierSuccessfulVerificationPage=REVIEW`, `EnsureVerifierFetchedRevocationList=WARNING`).
+> * **Combined Certify + Verify**, hosted twice: through the phased workflow (run 40645764342) and through the script's single default-all command (run 40651319058, workflow dispatch `native_component=both`, `script_path=all`, no `--phase`).
+>   Both times Certify ended FAILED as above and Verify ended
+>   FINISHED with verdict **REVIEW** (native exit codes both 1; conditions `ExpectVerifierSuccessfulVerificationPage=REVIEW`, `EnsureVerifierFetchedRevocationList=WARNING`).
 >   REVIEW needs a human decision; the project-rendered PNG is a view of the Verify v2 result API, not a native Verify UI.
 > * **Not run on a hosted runner:** Verify-only through the one-command script; full official plans (only selected happy flows are in scope);
 >   any expected-failure baseline (none has been recorded, so none is claimed).
@@ -35,7 +36,7 @@ pip install -r scripts/requirements.txt
 export JAVA_HOME=/path/to/jdk21
 ./run-full-stack-conformance.sh --component certify --approve-runtime     # proven on a hosted runner
 ./run-full-stack-conformance.sh --component verify  --approve-runtime     # same code path, not yet run hosted
-./run-full-stack-conformance.sh --combined          --approve-runtime     # Verify needs the review step below
+./run-full-stack-conformance.sh --combined          --approve-runtime     # proven hosted via the workflow with review settings; bare local run, see below
 ```
 
 * Work directory: default is a fresh `mktemp -d`. `CONFORMANCE_WORK` may be set but must be under `/tmp`, and `TMPDIR` must also be under `/tmp`
@@ -43,7 +44,7 @@ export JAVA_HOME=/path/to/jdk21
 * `--phase prepare|run|cleanup|audit` splits the steps (needs `CONFORMANCE_WORK`); the default `all` always runs cleanup and audit, even after a failure, and keeps the original exit code.
 * Verify needs a human review decision (REVIEW verdict). The GitHub workflow `e2e-full-run.yml` (dispatch mode `native-combined`) does this with a short-lived review window; the one-command script alone does not fake it.
   Without the review settings (`CONFORMANCE_REVIEW_WINDOW`, `CONFORMANCE_REVIEW_DIR`, a read-only `GITHUB_TOKEN`, and a reviewer-committed approval file) a Verify run ends in a deliberate HARNESS_ERROR (`actual_result_evidence_requires_visual_review`), not a verdict.
-  So a bare local `--combined` or `--component verify` gives you the Certify result plus that Verify harness error; the REVIEW verdict was only produced through the workflow. The single default-all `--combined` command has not been run on a hosted runner yet.
+  So a bare local `--combined` or `--component verify` gives you the Certify result plus that Verify harness error; the REVIEW verdict was only produced on hosted runs that supplied the review settings and an approval (the single default-all `--combined` command did produce it that way, run 40651319058). A bare local run does not fake it.
   The script keeps the token and review settings out of the prepare phase (git, Maven, Go, MinIO); only the run phase sees them.
   The workflow input `script_path` (`phased` default, or `all` for the single default-all command) selects which of the two paths the dispatch uses.
 * Output: `combined-results.json` (selected components, native exit codes, per-module status, failed condition names with known requirement ids), native TestNG/Extent reports,
