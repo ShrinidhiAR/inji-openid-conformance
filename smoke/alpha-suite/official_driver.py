@@ -6,22 +6,26 @@ from safe_classic import SafeClassic,json_object,ProtocolFailure
 from esignet import gen_client_key
 from tls_config import CERTIFY,AS,SUITE
 from outcomes import document,write,safe_conditions
-MODULES=['oid4vci-1_0-issuer-metadata-test','oid4vci-1_0-issuer-happy-flow']
-VARIANT={'fapi_profile':'vci','credential_format':'mdoc','authorization_request_type':'simple','client_auth_type':'private_key_jwt','fapi_request_method':'unsigned','sender_constrain':'dpop','vci_authorization_code_flow_variant':'wallet_initiated','vci_credential_encryption':'plain','vci_grant_type':'authorization_code'}
+from suite_contract import PLAN,PLAN_ROUTE,MODULES,VARIANT,plan_info,created_plan,created_module,wait_state,test_info,implicit_target,require,ContractError
 ALIAS='alpha-official';CALLBACK=SUITE+'/test/a/'+ALIAS+'/callback'
 class Driver:
  def __init__(self,ca):
-  self.s=requests.Session();self.s.verify=str(ca);self.s.trust_env=False
+  self.s=requests.Session();self.s.verify=str(ca);self.s.trust_env=False;self.s.headers.update({'Content-Type':'application/json'})
+  self.last_api=None
   self.es=SafeClassic(AS,AS);self.es.s.verify=str(ca);self.es.s.trust_env=False
- def api(self,method,path,**kw):
-  r=self.s.request(method,SUITE+path,timeout=40,**kw)
-  if r.status_code not in (200,201,204):raise ProtocolFailure('suite API status')
+ def api(self,method,path,expected=200,**kw):
+  self.last_api={'method':method,'path_template':re.sub(r'/[A-Za-z0-9]{8,32}(?=/|$)','/<id>',path),'expected_http':expected}
+  r=self.s.request(method,SUITE+path,timeout=40,allow_redirects=False,**kw)
+  self.last_api['actual_http']=r.status_code
+  print('SUITE_API '+json.dumps(self.last_api),flush=True)
+  if r.status_code!=expected:raise ContractError('suite_api_http_'+str(r.status_code))
   return r
  def browser(self,url):
   u=urllib.parse.urlsplit(url)
   if (u.scheme,u.netloc)!=(urllib.parse.urlsplit(AS).scheme,urllib.parse.urlsplit(AS).netloc):raise ProtocolFailure('unexpected auth origin')
-  q=dict(urllib.parse.parse_qsl(u.query))
-  if set(q)!={'client_id','request_uri'}:raise ProtocolFailure('expected PAR URL')
+  pairs=urllib.parse.parse_qsl(u.query,keep_blank_values=True);q=dict(pairs)
+  require(len(pairs)==len(q) and not u.fragment and u.path=='/authorize','authorize_url_contract')
+  if set(q)!={'client_id','request_uri'} or not all(q.values()):raise ProtocolFailure('expected PAR URL')
   d=self.es.par_oauth_details(q['client_id'],q['request_uri'])
   if d.get('credentialScopes')!=['sample_vc_mdoc'] or 'openid' in (d.get('authorizeScopes') or []):raise ProtocolFailure('unexpected resolved scope')
   self.es.authenticate(d['transactionId'],'1774231323')
@@ -30,24 +34,14 @@ class Driver:
   if ac.get('redirectUri')!=CALLBACK or not ac.get('code') or ac.get('state') is None:raise ProtocolFailure('unexpected auth response')
   callback=CALLBACK+'?'+urllib.parse.urlencode({'code':ac['code'],'state':ac['state']})
   r=self.s.get(callback,allow_redirects=False,timeout=30)
-  match=re.search("xhr\\.open\\('POST',\\s*['\"]([^'\"]+)",r.text)
-  if not match:raise ProtocolFailure('missing implicit replay')
-  raw=match.group(1)
-  try:target=json.loads('"'+raw+'"')
-  except ValueError:target=raw.replace('\\/','/')
-  u=urllib.parse.urlsplit(target);origin=urllib.parse.urlsplit(SUITE)
-  if (u.scheme,u.netloc)!=(origin.scheme,origin.netloc) or not u.path.startswith('/test/a/'+ALIAS+'/implicit/'):raise ProtocolFailure('unexpected replay target')
-  r=self.s.post(target,data='',headers={'Content-Type':'text/plain'},timeout=30)
-  if not 200<=r.status_code<300:raise ProtocolFailure('implicit replay failed')
+  require(r.status_code==200,'callback_status_contract')
+  target=implicit_target(r.text,SUITE,ALIAS)
+  r=self.s.post(target,data='',headers={'Content-Type':'text/plain'},timeout=30,allow_redirects=False)
+  require(r.status_code==204,'implicit_submit_status_contract')
+
  def run(self,out,run_id,started):
-  info=self.api('GET','/api/plan/info/oid4vci-1_0-issuer-test-plan').json()
-  variants=info.get('variants',{})
-  for key,value in VARIANT.items():
-   if value not in variants.get(key,{}).get('variantValues',{}):raise ProtocolFailure('pinned plan variant missing')
-  actual_senders=set(variants['sender_constrain']['variantValues'])
-  if actual_senders!={'mtls','dpop'}:raise ProtocolFailure('sender variant drift')
-  names=[x.get('testModule') for x in info.get('modules',[])]
-  if not all(x in names for x in MODULES):raise ProtocolFailure('module drift')
+  info=plan_info(self.api('GET',PLAN_ROUTE).json())
+  actual_senders=set(info['variants']['sender_constrain']['variantValues'])
   (out/'plan-verification.json').write_text(json.dumps({'plan':info.get('planName'),'certifiable':info.get('certifiable'),'sender_constraints':sorted(actual_senders),'selected':MODULES,'image_lock_verified':True},indent=2))
   clients=[]
   for i in (1,2):
@@ -56,27 +50,31 @@ class Driver:
    if r.get('clientId')!=cid:raise ProtocolFailure('registration mismatch')
    clients.append({'client_id':cid,'jwks':{'keys':[priv]}})
   cfg={'alias':ALIAS,'description':'Bounded real alpha issuer checks, synthetic TEST only','vci':{'credential_issuer_url':CERTIFY,'authorization_server':AS,'credential_configuration_id':'DrivingLicenseCredential','credential_proof_type_hint':'jwt'},'credential':{'trust_anchor_pem':(out/'mdoc-test-iaca.pem').read_text()},'client':clients[0],'client2':clients[1]}
-  plan=self.api('POST','/api/plan',params={'planName':'oid4vci-1_0-issuer-test-plan','variant':json.dumps(VARIANT)},json=cfg).json();pid=plan.get('id') or plan.get('planId')
+  plan=self.api('POST','/api/plan',expected=201,params={'planName':PLAN,'variant':json.dumps(VARIANT)},json=cfg).json();pid=created_plan(plan)
   if not pid:raise ProtocolFailure('no plan ID')
   rows=[];conditions={}
   for name in MODULES:
-   mid=self.api('POST','/api/runner',params={'test':name,'plan':pid}).json().get('id')
+   mid=created_module(self.api('POST','/api/runner',expected=201,params={'test':name,'plan':pid}).json(),name)
    if not mid:raise ProtocolFailure('no module ID')
-   self.api('POST','/api/runner/'+mid)
+   start=self.api('POST','/api/runner/'+mid).json()
+   require(start.get('id')==mid and start.get('name')==name,'start_test_contract')
    deadline=time.monotonic()+240;driven=set();status='HARNESS_TIMEOUT';result=None
    while time.monotonic()<deadline:
     w=self.api('GET','/api/runner/'+mid+'/wait-state',params={'states':'WAITING,FINISHED,INTERRUPTED','timeoutMs':'20000'}).json()
-    state=w.get('state') or w.get('status')
+    state=wait_state(w)
     if state=='WAITING':
      b=self.api('GET','/api/runner/browser/'+mid).json()
-     for url in b.get('urls',[]):
+     require(b.get('id')==mid and isinstance(b.get('urls'),list) and all(isinstance(u,str) for u in b['urls']),'browser_status_contract')
+     for url in b['urls']:
       if url not in driven:
        driven.add(url)
        try:self.browser(url)
-       except Exception:
+       except Exception as be:
+        (out/'suite-api-failure.json').write_text(json.dumps({'category':getattr(be,'category','browser_driver_exception'),'error_class':type(be).__name__,'last_api':self.last_api,'raw_values_retained':False}))
         status='HARNESS_ERROR';result=None;break
      if status=='HARNESS_ERROR':break
-    current=self.api('GET','/api/info/'+mid).json()
+    current=test_info(self.api('GET','/api/info/'+mid).json(),mid,name)
+    if current.get('status')=='WAITING':time.sleep(0.5)
     if current.get('status') in ('FINISHED','INTERRUPTED'):
      status=current['status'];result=current.get('result');break
    rows.append({'module':name,'test_id':mid,'status':status,'result':result})

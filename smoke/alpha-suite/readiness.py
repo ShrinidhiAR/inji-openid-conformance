@@ -2,7 +2,8 @@
 import json,pathlib,socket,ssl,time,subprocess,requests,sys
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]))
 from safe_http_evidence import summarize,Recorder
-ORIGINS={'certify':('/v1/certify/actuator/health','certify.local.test'),'esignet':('/v1/esignet/oidc/.well-known/openid-configuration','esignet.local.test'),'suite':('/api/plan','suite.local.test')}
+from suite_contract import PLAN_ROUTE,plan_info,ContractError
+ORIGINS={'certify':('/v1/certify/actuator/health','certify.local.test'),'esignet':('/v1/esignet/oidc/.well-known/openid-configuration','esignet.local.test'),'suite':(PLAN_ROUTE,'suite.local.test')}
 SERVICES={'certify-app','initialize','certify-db','esignet-app','esignet-db','redis','mock-identity-system','mock-ready','esignet-gateway','suite-server','suite-mongodb','tls-gateway'}
 CATS={10:'certificate_expired',18:'self_signed_leaf',19:'self_signed_chain',20:'issuer_unavailable',21:'leaf_signature_unverified',62:'hostname_mismatch',85:'authority_key_identifier_missing',86:'subject_key_identifier_missing'}
 
@@ -72,10 +73,13 @@ def wait(session,origin,out,cmd,cap=180,clock=time.monotonic,sleep=time.sleep,in
             e=summarize(route,r.status_code,r.headers,r.content);e['category']='http_response'
             try:b=r.json()
             except ValueError:b=None
-            if origin=='suite':e['plan_array_nonempty']=isinstance(b,list) and bool(b)
+            if origin=='suite':
+                try:plan_info(b);e['plan_contract_matches']=True
+                except ContractError:e['plan_contract_matches']=False
             if origin=='esignet':e['issuer_matches']=isinstance(b,dict) and b.get('issuer')=='https://'+host+':8443'
             record(e);last='http_'+str(r.status_code)
-            ok=r.status_code==200 and ((origin=='certify' and isinstance(b,dict) and b.get('status')=='UP' and not b.get('errors')) or (origin=='esignet' and e['issuer_matches']) or (origin=='suite' and e['plan_array_nonempty']))
+            if origin=='suite' and r.status_code==200 and not e['plan_contract_matches']:raise ReadinessFailure(origin,'plan_contract_mismatch')
+            ok=r.status_code==200 and ((origin=='certify' and isinstance(b,dict) and b.get('status')=='UP' and not b.get('errors')) or (origin=='esignet' and e['issuer_matches']) or (origin=='suite' and e['plan_contract_matches']))
             if ok:return
         except requests.RequestException as ex:
             e=exception(ex);record(e);last=e['category']

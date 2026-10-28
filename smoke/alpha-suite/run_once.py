@@ -44,7 +44,11 @@ def main():
   md=json_object(s.get(CERTIFY+'/v1/certify/.well-known/openid-credential-issuer',timeout=20))
   if md.get('credential_issuer')!=CERTIFY or md.get('authorization_servers')!=[AS] or md.get('nonce_endpoint')!=CERTIFY+'/v1/certify/nonce':raise ValueError('metadata deployment mismatch')
   stage='synthetic_seed';seed()
-  stage='official_modules';Driver(private/'tls-ca.pem').run(OUT,run_id,started)
+  stage='official_modules';driver=Driver(private/'tls-ca.pem')
+  try:driver.run(OUT,run_id,started)
+  except Exception as de:
+   (OUT/'suite-api-failure.json').write_text(json.dumps({'category':getattr(de,'category','driver_exception'),'error_class':type(de).__name__,'last_api':driver.last_api,'raw_values_retained':False}))
+   raise
   stage='standalone_mosip_report';gate_exit=gate(OUT,run_id)
   stage='completed';(OUT/'completion.json').write_text(json.dumps({'official_modules_executed':True,'standalone_adapter_exit':gate_exit,'scope':'selected issuer modules, not full plan/certification','full_rig_s3_verified':False}))
  except Exception as e:

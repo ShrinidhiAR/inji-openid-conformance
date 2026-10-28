@@ -35,6 +35,13 @@ class Tests(unittest.TestCase):
   rows=lifecycle([{'service':'tls-gateway','state':{'Status':'exited','ExitCode':1,'Error':'secret','Health':{'Status':'unhealthy','Log':[{'Output':'secret'}]}}},{'service':'external-secret','state':{}}])
   self.assertEqual(len(rows),1);self.assertNotIn('secret',json.dumps(rows));self.assertTrue(terminal(rows))
   self.assertFalse(terminal(lifecycle([{'service':'initialize','state':{'Status':'exited','ExitCode':0}}])))
+ def test_wrong_200_contract_fast(self):
+  class Wrong(R):
+   status_code=200;content=b'{"data": []}'
+   def json(self):return {'data':[]}
+  with tempfile.TemporaryDirectory() as p:
+   with self.assertRaises(ReadinessFailure) as cm:wait(S(Wrong()),'suite',pathlib.Path(p),[],inspect_fn=lambda *a:[],sleep=lambda n:self.fail('wrong200must not retry'))
+   self.assertEqual(cm.exception.category,'plan_contract_mismatch')
  def test_warming_health_not_terminal(self):
   self.assertFalse(terminal([{'status':'running','health':'unhealthy','oom_killed':False,'service':'certify-app','exit_code':0}]))
  def test_dns_chain(self):

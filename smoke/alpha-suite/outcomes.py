@@ -1,7 +1,7 @@
 """Allowlist actual suite outcomes; never synthesize successful results."""
 import datetime,json,os,pathlib
 STATUSES={'FINISHED','INTERRUPTED','RUNNING','WAITING','CREATED','UNKNOWN','HARNESS_ERROR','HARNESS_TIMEOUT'}
-RESULTS={'PASSED','FAILED','WARNING','REVIEW','UNKNOWN'}
+RESULTS={'PASSED','FAILED','WARNING','REVIEW','SKIPPED','UNKNOWN'}
 def document(run_id,started_at,plan_id,actual,requested):
     if not run_id or not plan_id or not requested:raise ValueError('missing provenance')
     dt=datetime.datetime.fromisoformat(started_at.replace('Z','+00:00'))
@@ -24,6 +24,6 @@ def safe_conditions(entries):
     out=[]
     for e in entries:
         source=e.get('source');result=e.get('result')
-        if isinstance(source,str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_.]{0,180}',source) and result in {'FAILURE','WARNING','SUCCESS','INFO'}:
+        if isinstance(source,str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_.]{0,180}',source) and result in {'FAILURE','WARNING','SUCCESS','INFO','REVIEW'}:
             out.append({'source':source,'result':result})
     return out
