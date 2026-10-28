@@ -58,3 +58,16 @@ Coverage gaps kept explicit: --component certify|verify single orchestration uni
 - Workflow: upload step continue-on-error; wait-exit and terminate steps always run under one absolute deadline (budget 1500 s from launch); terminate kills the owned process group only if pid+start time still match; fallback cleanup and public audit run after. Job timeout 55 min bound holds (about 10 min setup + 25 min attempt + cleanup).
 - Token: GITHUB_TOKEN is popped from run_combined's environment, so compose/certify/MinIO never inherit it, and is handed only to the Verify native invocation, whose runner needs it for the read-only poll; ACTIONS tokens are always stripped. Not written to manifest/invocation/args. audit_evidence now also rejects GitHub token patterns. Secret masking by Actions applies in logs.
 - Java pass-through compiled locally with stub dependencies (JDK 11 compiler); real compile still happens in CI before the stack.
+
+## Single-component modes and the one entrypoint (local milestone, not yet run on hosted runners)
+
+`run-full-stack-conformance.sh` is the only place the steps live; the `native-combined` workflow job calls it by phase
+(`--phase prepare`, `run`, `cleanup`, `audit`) and the default `--phase all` is the one-command local run.
+- `--combined` runs the Certify and Verify native rigs; `--component certify` or `--component verify` stages, compiles and runs only that rig.
+  All modes use the same owned synthetic stack, MinIO, isolated suite infrastructure and cleanup. Selected happy flows only: not full official
+  plans, not certification. Anything else (`--component both`, unknown component or phase, split phases without `CONFORMANCE_WORK`) exits 2 before any work.
+- Workflow input `native_component` (both, certify, verify; default both) selects the rig(s). Verify-only or both keep the live review window;
+  Certify-only never waits for a review (the job sees the attempt end first).
+- Tests (`rig-integration/tests/test_entrypoint.py`) shim every external command and check argv, component routing, phase isolation,
+  cleanup-after-failure ordering, exit status propagation, and that the workflow no longer repeats the orchestration steps.
+- Condition diagnostics may now carry `requirements`: suite-authored spec reference ids (for example OID4VCI-1FINAL-8.3), shape-checked and capped, never free text.
