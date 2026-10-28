@@ -3,6 +3,7 @@ import os,pathlib,subprocess,tempfile,unittest
 ROOT=pathlib.Path(__file__).resolve().parents[2];S=str(ROOT/'run-full-stack-conformance.sh')
 SHIM='''#!/bin/bash
 echo "$(basename $0) $*" >> "$SHIM_LOG"
+echo "env $(basename $0) token=${GITHUB_TOKEN:-unset} window=${CONFORMANCE_REVIEW_WINDOW:-unset} dir=${CONFORMANCE_REVIEW_DIR:-unset}" >> "$SHIM_LOG.env"
 case "$(basename $0) $*" in
  *run_combined.py*) if [ -n "$SHIM_HANG" ]; then trap 'echo run_combined_got_TERM >> "$SHIM_LOG"; kill $sp 2>/dev/null; exit 143' TERM; sleep 30 & sp=$!; wait $sp; fi; exit ${SHIM_RUN_EXIT:-0};;
  *audit_evidence.py*) exit ${SHIM_AUDIT_EXIT:-0};;
@@ -119,4 +120,43 @@ class MainFailsClosedBeforeAnyStack(unittest.TestCase):
   for comp,extra in (('verify',{}),('certify',{}),('both',{'certify_classpath':'a'}),('suite',{'certify_classpath':'a','verify_classpath':'b'})):
    with self.assertRaises(ValueError):rc.main(types.SimpleNamespace(component=comp,**{**base,**extra}))
   self.assertFalse(pathlib.Path('/nonexistent-should-not-be-created').exists())
+class CombinedDefaultAllAndWorkflowPaths(unittest.TestCase):
+ REVIEW={'GITHUB_TOKEN':'tok-sentinel','CONFORMANCE_REVIEW_WINDOW':'480','CONFORMANCE_REVIEW_DIR':'/home/runner/work/_temp/review-request'}
+ def test_prepare_children_never_see_token_but_run_child_does(self):
+  import tempfile
+  d=tempfile.mkdtemp();b=pathlib.Path(d)/'bin';b.mkdir();log=pathlib.Path(d)/'log'
+  for n in ('python3','git','mvn'):
+   f=b/n;f.write_text(SHIM);f.chmod(0o755)
+  w=pathlib.Path(d)/'work';w.mkdir()
+  for c in ('certify','verify'):(w/('native-'+c+'-classpath')).write_text('d.jar')
+  e={'PATH':str(b)+':/usr/bin:/bin','SHIM_LOG':str(log),'JAVA_HOME':'/jdk','CONFORMANCE_WORK':str(w)};e.update(self.REVIEW)
+  r=subprocess.run(['bash',S,'--combined','--approve-runtime','--output',str(pathlib.Path(d)/'out')],capture_output=True,text=True,env=e)
+  lines=pathlib.Path(str(log)+'.env').read_text().splitlines();cmds=log.read_text().splitlines()
+  self.assertEqual(len(lines),len(cmds))
+  seen_run=False
+  for c,x in zip(cmds,lines):
+   if 'run_combined.py' in c:
+    seen_run=True;self.assertIn('token=tok-sentinel',x);self.assertIn('window=480',x)
+   elif any(k in c for k in ('stage_isolated','mvn','build_minio','minio_native_acceptance','git ')):
+    self.assertIn('token=unset',x,c);self.assertIn('window=unset',x,c);self.assertIn('dir=unset',x,c)
+  self.assertTrue(seen_run)
+ def test_workflow_script_path_contract(self):
+  import yaml,re
+  t=(ROOT/'.github/workflows/e2e-full-run.yml').read_text();d=yaml.safe_load(t)
+  i=d[True]['workflow_dispatch']['inputs']['script_path'];self.assertEqual((i['default'],i['options'],i['required']),('phased',['phased','all'],False))
+  j=t[t.index('  native-combined:'):]
+  self.assertIn("native_component != 'certify' && github.event.inputs.script_path != 'all'",j)
+  j2=j[j.index('Start the one selected'):];start=j2[j2.index('case "${NATIVE_COMPONENT'):];start=start[:start.index('setsid')]
+  start=start.replace('rm -f "$RUNNER_TEMP/combined.exit"','')
+  def run(comp,path):
+   r=subprocess.run(['bash','-c',start+'echo "$SEL|$PH|$BUDGET"'],capture_output=True,text=True,env={'PATH':'/usr/bin:/bin','NATIVE_COMPONENT':comp,'SCRIPT_PATH':path})
+   return r.returncode,r.stdout.strip()
+  self.assertEqual(run('both','phased'),(0,'--combined|--phase run|1500'))
+  self.assertEqual(run('both','all'),(0,'--combined||2100'))
+  self.assertEqual(run('verify','all'),(0,'--component verify||2100'))
+  self.assertEqual(run('verify','phased'),(0,'--component verify|--phase run|1500'))
+  self.assertEqual(run('certify','phased'),(0,'--component certify||1500'))
+  self.assertEqual(run('certify','all'),(0,'--component certify||1500'))
+  self.assertEqual(run('both','bogus')[0],2);self.assertEqual(run('suite','all')[0],2)
+  self.assertEqual(run('both','')[1],'--combined|--phase run|1500')
 if __name__=='__main__':unittest.main()
