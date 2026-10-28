@@ -47,19 +47,41 @@ prepare(){
   local cps=(); for c in $comps; do cps+=("--$c-classpath" "$(cp_arg "$c")"); done
   python3 rig-integration/tests/minio_native_acceptance.py --binary "$work/approved-minio" --provenance "$work/approved-minio.provenance.json" --java "$JAVA_HOME/bin/java" "${cps[@]}"
 }
+child=""
 run(){
   : "${JAVA_HOME:?JAVA_HOME required}"
   mkdir -p "$work/owned"
   local cps=(); local c; for c in $comps; do cps+=("--$c-classpath" "$(cp_arg "$c")"); done
-  python3 rig-integration/run_combined.py --output "$out" --locator "$work/owned/locator.json" --java-home "$JAVA_HOME" --minio-binary "$work/approved-minio" --minio-provenance "$work/approved-minio.provenance.json" --component "$sel" "${cps[@]}" || status=$?
+  python3 rig-integration/run_combined.py --output "$out" --locator "$work/owned/locator.json" --java-home "$JAVA_HOME" --minio-binary "$work/approved-minio" --minio-provenance "$work/approved-minio.provenance.json" --component "$sel" "${cps[@]}" &
+  child=$!
+  wait "$child" || status=$?
+  child=""
 }
 cleanup(){ [ ! -f "$work/owned/locator.json" ] || python3 rig-integration/fallback_cleanup.py --locator "$work/owned/locator.json" || status=2; }
 audit(){ if [ -d "$out" ]; then python3 rig-integration/audit_evidence.py "$out" || status=2; else echo "no evidence directory to audit" >&2; status=2; fi; }
+# A signal reaches the owned child first (run_combined has its own exact cleanup), then the script exits through its EXIT path.
+on_signal(){
+  if [ -n "$child" ]; then kill -TERM "$child" 2>/dev/null || true; wait "$child" 2>/dev/null || true; fi
+  exit "$1"
+}
+trap 'on_signal 143' TERM
+trap 'on_signal 130' INT
+# Default one-command path: whatever happens (prepare failure, run failure, signal), clean up exactly what this run owns and audit
+# whatever evidence exists. The original exit code is kept; cleanup or audit failures are reported and only change a zero exit.
+finish(){
+  local rc=$?; trap - EXIT TERM INT; set +e
+  [ "$rc" != 0 ] || rc=$status
+  local bad=0
+  [ ! -f "$work/owned/locator.json" ] || python3 rig-integration/fallback_cleanup.py --locator "$work/owned/locator.json" || { echo "cleanup_failed" >&2; bad=1; }
+  if [ -d "$out" ]; then python3 rig-integration/audit_evidence.py "$out" || { echo "audit_failed" >&2; bad=1; }; fi
+  [ "$rc" != 0 ] || [ "$bad" = 0 ] || rc=2
+  exit "$rc"
+}
 case "$phase" in
   prepare) prepare;;
   run) run;;
   cleanup) cleanup;;
   audit) audit;;
-  all) prepare; run; cleanup; audit;;
+  all) trap finish EXIT; prepare; run;;
 esac
 exit "$status"

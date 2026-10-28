@@ -480,6 +480,7 @@ jobs:
           python3 -m unittest discover -s rig-integration/tests -p 'test_*.py' -v
           (cd smoke/alpha-suite && python3 -m unittest -v test_preparation test_transport)
       - name: Prepare through the one-command script (pinned native source, compile, MinIO build and acceptance)
+        if: github.event.inputs.native_component != 'certify'
         env:
           CONFORMANCE_WORK: ${{ runner.temp }}/conformance-work
           NATIVE_COMPONENT: ${{ github.event.inputs.native_component }}
@@ -488,15 +489,17 @@ jobs:
           ./run-full-stack-conformance.sh $sel --approve-runtime --phase prepare
       - name: Start the one selected attempt in the background through the script (private log, live review window)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CONFORMANCE_REVIEW_WINDOW: '480'
+          GITHUB_TOKEN: ${{ github.event.inputs.native_component != 'certify' && secrets.GITHUB_TOKEN || '' }}
+          CONFORMANCE_REVIEW_WINDOW: ${{ github.event.inputs.native_component != 'certify' && '480' || '' }}
           CONFORMANCE_REVIEW_DIR: ${{ runner.temp }}/review-request
           CONFORMANCE_WORK: ${{ runner.temp }}/conformance-work
           NATIVE_COMPONENT: ${{ github.event.inputs.native_component }}
         run: |
           case "${NATIVE_COMPONENT:-both}" in both) export SEL="--combined";; certify|verify) export SEL="--component $NATIVE_COMPONENT";; *) echo unsupported selection; exit 2;; esac
           rm -f "$RUNNER_TEMP/combined.exit"
-          setsid bash -c './run-full-stack-conformance.sh $SEL --approve-runtime --phase run > "$RUNNER_TEMP/combined.private.log" 2>&1; echo $? > "$RUNNER_TEMP/combined.exit"' > /dev/null 2>&1 < /dev/null &
+          # Certify-only runs the script's default all path (prepare, run, cleanup, audit in one command); otherwise prepare ran above.
+          if [ "${NATIVE_COMPONENT:-both}" = certify ]; then export PH=""; else export PH="--phase run"; fi
+          setsid bash -c './run-full-stack-conformance.sh $SEL --approve-runtime $PH > "$RUNNER_TEMP/combined.private.log" 2>&1; echo $? > "$RUNNER_TEMP/combined.exit"' > /dev/null 2>&1 < /dev/null &
           python3 rig-integration/review_gate.py start --pid "$!" --pid-file "$RUNNER_TEMP/combined.pid" --deadline-file "$RUNNER_TEMP/combined.deadline" --budget 1500
       - name: Wait for the review request or the attempt ending
         id: pending
