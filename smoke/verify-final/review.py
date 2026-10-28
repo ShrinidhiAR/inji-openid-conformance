@@ -10,10 +10,10 @@ def need(ok,category):
 def approval_path(run_id,test_id):return 'review-approvals/%s-%s.json'%(run_id,test_id)
 def valid_ids(run_id,test_id):
  need(isinstance(run_id,str) and re.fullmatch('[A-Za-z0-9-]{1,64}',run_id),'review_configuration');need(isinstance(test_id,str) and re.fullmatch('[A-Za-z0-9]{8,32}',test_id),'review_configuration')
-def make_manifest(run_id,test_id,placeholder,png,window,now):
+def make_manifest(run_id,test_id,placeholder,png,window,now,projection=b'',html=b''):
  valid_ids(run_id,test_id);need(isinstance(placeholder,str) and re.fullmatch('[A-Za-z0-9_-]{6,64}',placeholder),'review_placeholder_missing')
  need(png[:8]==b'\x89PNG\r\n\x1a\n' and 0<len(png)<=MAX_PNG,'review_image_invalid');need(isinstance(window,int) and 0<window<=600,'review_configuration')
- return {'schema':SCHEMA,'run_id':run_id,'test_id':test_id,'placeholder':placeholder,'png_sha256':hashlib.sha256(png).hexdigest(),'png_bytes':len(png),'created_at':int(now),'deadline':int(now)+window,'description':DESCRIPTION,'approval_path':approval_path(run_id,test_id)}
+ return {'schema':SCHEMA,'run_id':run_id,'test_id':test_id,'placeholder':placeholder,'png_sha256':hashlib.sha256(png).hexdigest(),'png_bytes':len(png),'projection_sha256':hashlib.sha256(projection).hexdigest(),'html_sha256':hashlib.sha256(html).hexdigest(),'created_at':int(now),'deadline':int(now)+window,'description':DESCRIPTION,'approval_path':approval_path(run_id,test_id)}
 APPROVAL_KEYS={'schema','run_id','test_id','png_sha256','approved_at','decision'}
 def validate(approval,manifest,png,now):
  need(isinstance(approval,dict) and set(approval)==APPROVAL_KEYS,'approval_invalid')
@@ -51,3 +51,27 @@ def write_request(directory,manifest,png,module):
  d=pathlib.Path(directory);d.mkdir(parents=True,exist_ok=True)
  (d/(module+'-verify-result.png')).write_bytes(png)
  t=d/'manifest.json.tmp';t.write_text(json.dumps(manifest,indent=2));t.replace(d/'manifest.json')  # manifest last: it is the ready signal
+
+MANIFEST_KEYS={'schema','run_id','test_id','placeholder','png_sha256','png_bytes','projection_sha256','html_sha256','created_at','deadline','description','approval_path'}
+PROJECTION_KEYS={'transaction_matches','credential_count','all_checks_successful','checks','source','test_id'}
+CHECK_KEYS={'schemaAndSignatureCheck','expiryCheck','holderProofCheck','status_checks_returned','status_checks_valid','all_checks_successful'}
+def check_request(directory,evidence,run_id,now):
+  """Gate before the early public artifact: parsed manifest fields, files, and provenance of the image."""
+  import struct
+  d=pathlib.Path(directory);e=pathlib.Path(evidence)
+  names=sorted(x.name for x in d.iterdir());need('manifest.json' in names,'review_artifact_invalid')
+  need(not any(x.is_symlink() for x in d.iterdir()),'review_artifact_invalid')
+  m=json.loads((d/'manifest.json').read_text());need(isinstance(m,dict) and set(m)==MANIFEST_KEYS,'review_artifact_invalid')
+  test=m['test_id'];valid_ids(m['run_id'],test);need(m['run_id']==run_id and m['schema']==SCHEMA,'review_artifact_invalid')
+  need(names==sorted(['manifest.json',test+'-verify-result.png']),'review_artifact_invalid')
+  need(isinstance(m['placeholder'],str) and re.fullmatch('[A-Za-z0-9_-]{6,64}',m['placeholder']),'review_artifact_invalid')
+  need(m['description']==DESCRIPTION and m['approval_path']==approval_path(run_id,test),'review_artifact_invalid')
+  need(all(isinstance(m[k],int) and not isinstance(m[k],bool) for k in ('created_at','deadline','png_bytes')) and 0<m['deadline']-m['created_at']<=600,'review_artifact_invalid')
+  need(int(now)<=m['deadline'],'review_window_expired')
+  png=(d/(test+'-verify-result.png')).read_bytes();need(hashlib.sha256(png).hexdigest()==m['png_sha256'] and len(png)==m['png_bytes']<=MAX_PNG and png[:8]==b'\x89PNG\r\n\x1a\n','review_artifact_invalid')
+  w,h=struct.unpack('>II',png[16:24]);need(png[12:16]==b'IHDR' and 0<w<=4000 and 0<h<=4000,'review_artifact_invalid')
+  proj=(e/(test+'-verify-result.json')).read_bytes();html=(e/(test+'-verify-result.html')).read_bytes()
+  need(hashlib.sha256(proj).hexdigest()==m['projection_sha256'] and hashlib.sha256(html).hexdigest()==m['html_sha256'],'review_artifact_invalid')
+  doc=json.loads(proj);need(isinstance(doc,dict) and set(doc)==PROJECTION_KEYS and doc['test_id']==test and doc['source']=='Verify v2 result API projection','review_artifact_invalid')
+  need(isinstance(doc['checks'],list) and all(isinstance(c,dict) and set(c)==CHECK_KEYS for c in doc['checks']),'review_artifact_invalid')
+  need(b'<script' not in html.lower() and b'http://' not in html and b'https://' not in html,'review_artifact_invalid')

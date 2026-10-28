@@ -59,15 +59,22 @@ class Adapter:
    log=(await self.exchange('GET',self.suite+'/api/log/'+module,{200})).json()
    marks=[x['upload'] for x in log if isinstance(x,dict) and isinstance(x.get('upload'),str)] if isinstance(log,list) else []
    reviewing.need(len(marks)==1,'review_placeholder_missing')
-   manifest=reviewing.make_manifest(cfg['run_id'],module,marks[0],png,cfg['window'],cfg['clock']())
+   evidence=self.output/(module+'-verify-result.json'),self.output/(module+'-verify-result.html')
+   manifest=reviewing.make_manifest(cfg['run_id'],module,marks[0],png,cfg['window'],cfg['clock'](),evidence[0].read_bytes(),evidence[1].read_bytes())
    reviewing.write_request(cfg['dir'],manifest,png,module)
    await reviewing.wait_for_approval(cfg['source'],manifest,png,cfg['clock'],cfg['sleep'],cfg.get('interval',15))
    # Re-read: the placeholder must still exist and the image must be byte-identical to what was approved.
    again=(await self.exchange('GET',self.suite+'/api/log/'+module,{200})).json()
    reviewing.need(isinstance(again,list) and marks[0] in [x.get('upload') for x in again if isinstance(x,dict)],'review_placeholder_missing')
    reviewing.need(png==(self.output/(module+'-verify-result.png')).read_bytes(),'approval_mismatch')
+   info=(await self.exchange('GET',self.suite+'/api/info/'+module,{200})).json()
+   reviewing.need(isinstance(info,dict) and info.get('testId',module)==module and info.get('status')=='WAITING','review_upload_failed')
    response=await self.http.post(self.suite+'/api/log/'+module+'/images/'+marks[0],content=reviewing.data_uri(png),headers={'Content-Type':'text/plain'})
-   reviewing.need(response.status_code==200,'review_upload_failed')
+   # The controller answers 200 with an empty body when no placeholder matched: require the updated entry.
+   reviewing.need(response.status_code==200,'review_upload_failed');body=response.json()
+   reviewing.need(isinstance(body,dict) and isinstance(body.get('img'),str) and 'upload' not in body,'review_upload_failed')
+   after=(await self.exchange('GET',self.suite+'/api/log/'+module,{200})).json()
+   reviewing.need(isinstance(after,list) and marks[0] not in [x.get('upload') for x in after if isinstance(x,dict)],'review_upload_failed')
   except reviewing.ReviewError as e:raise ContractError(str(e)) from None
   except ContractError:raise
   except Exception:raise ContractError('review_upload_failed') from None

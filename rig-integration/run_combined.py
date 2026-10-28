@@ -11,6 +11,7 @@ from owned_process import run as owned_run
 from cleanup import cleanup
 
 def main(args):
+ review_token=os.environ.pop('GITHUB_TOKEN',None) if os.environ.get('CONFORMANCE_REVIEW_WINDOW') else None  # never inherited by compose, certify or MinIO
  out=pathlib.Path(args.output).resolve();private=None;compose=None;old=None;minio_process=None;project='conformance-'+uuid.uuid4().hex[:12];code=2;hosts=pathlib.Path('/etc/hosts');stages=[]
  if out.exists():raise ValueError('fresh_evidence_directory_required')
  try:
@@ -69,7 +70,7 @@ def main(args):
   codes={}
   for component,manifest,cp in [('certify',certify,args.certify_classpath),('verify',verify,args.verify_classpath)]:
    stages.append('native_'+component)
-   try:codes[component]=invoke(component,cp,str(pathlib.Path(args.java_home)/'bin/java'),manifest,out/component,s3,timeout=1560 if os.environ.get('CONFORMANCE_REVIEW_WINDOW') and component=='verify' else 600)
+   try:codes[component]=invoke(component,cp,str(pathlib.Path(args.java_home)/'bin/java'),manifest,out/component,s3,timeout=1560 if os.environ.get('CONFORMANCE_REVIEW_WINDOW') and component=='verify' else 600,extra_env={'GITHUB_TOKEN':review_token} if review_token and component=='verify' else None)
    except Exception:
     codes[component]=2
     (out/(component+'-invoke-error.json')).write_text(json.dumps({'component':component,'category':'native_invocation_failure','raw_error_retained':False}))
