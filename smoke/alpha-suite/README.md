@@ -39,3 +39,19 @@ No raw suite config/logs, credential, nonce, tokens, proof or private keys.
 
 No extra standalone DPoP diagnostic. Metadata/happy-flow official failures are
 meaningful outcomes; no rewriting to Bearer, bypassing TLS or weakening checks.
+
+## Failed first HTTPS run and local diagnostic repair
+
+Run40628938343 stopped at generic TLS readiness timeout before official modules.
+It retained no per-origin responses or transport classes, so cause is unknown.
+Do not claim a certificate, DNS or application defect from that artifact.
+
+Local repair: reuse safe_http_evidence.summarize/Recorder; each controlled origin
+has route/status/media type/shape/health/error-code progress, a180s cap, last
+failure category and origin-specific exception. TLS verification errors retain
+numeric verify_code and allowlisted category/classes only and fail promptly.
+Docker inspection retains service label + lifecycle/exit/OOM/health enum only;
+terminal process failures abort promptly. Health starting/unhealthy is evidence only during the bounded warmup, not a terminal process failure. Known nginx stderr categories are
+projected without text/paths/hostnames. No new config fix or security weakening
+is assumed without diagnostic evidence. Unit tests exercise HTTP502 timeout,
+TLS SAN mismatch, dead proxy, lifecycle redaction and safe proxy projection.

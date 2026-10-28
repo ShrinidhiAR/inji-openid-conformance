@@ -27,20 +27,12 @@ def main():
   subprocess.run(['sudo','tee','-a',str(hosts)],input=addition.encode(),capture_output=True,check=True)
   stage='startup';dc('up','-d',timeout=240)
   s=requests.Session();s.trust_env=False;s.verify=str(private/'tls-ca.pem')
-  stage='tls_readiness';deadline=time.monotonic()+600
-  for url,kind in ((CERTIFY+'/v1/certify/actuator/health','health'),(AS+'/v1/esignet/oidc/.well-known/openid-configuration','issuer'),(SUITE+'/api/plan','plans')):
-   while time.monotonic()<deadline:
-    try:
-     r=s.get(url,timeout=6)
-     if r.status_code!=200:raise ValueError('readiness status')
-     b=r.json()
-     if kind=='health':health(r.status_code,b)
-     if kind=='issuer' and b.get('issuer')!=AS:raise ValueError('AS issuer mismatch')
-     if kind=='plans' and not isinstance(b,list):raise ValueError('plan list missing')
-     break
-    except (requests.RequestException,ValueError):time.sleep(5)
-   else:raise TimeoutError('readiness deadline')
-  time.sleep(15);r=s.get(CERTIFY+'/v1/certify/actuator/health',timeout=10);health(r.status_code,r.json())
+  from readiness import wait
+  for origin in ('certify','esignet','suite'):
+   stage='readiness_'+origin
+   wait(s,origin,OUT,cmd,cap=180)
+  stage='stable_readiness_certify';time.sleep(15);wait(s,'certify',OUT,cmd,cap=30)
+  stage='key_initialization'
   logs=dc('logs','--no-color','certify-app')
   if b'CERTIFY_PARTNER MASTER KEY CHECK' not in logs or b'Application run failed' in logs or b'Shutdown completed' in logs:raise ValueError('key initialization failure')
   del logs
@@ -57,9 +49,16 @@ def main():
   stage='completed';(OUT/'completion.json').write_text(json.dumps({'official_modules_executed':True,'standalone_adapter_exit':gate_exit,'scope':'selected issuer modules, not full plan/certification','full_rig_s3_verified':False}))
  except Exception as e:
   OUT.mkdir(exist_ok=True)
-  (OUT/'failure.json').write_text(json.dumps({'stage':stage,'error_class':type(e).__name__,'raw_body_retained':False}))
+  (OUT/'failure.json').write_text(json.dumps({'stage':stage,'error_class':type(e).__name__,'origin':getattr(e,'origin',None),'category':getattr(e,'category',None),'raw_body_retained':False}))
   if compose:
    try:
+    from readiness import inspect
+    from proxy_diagnostics import collect
+    for diagnostic in (inspect,collect):
+     try:diagnostic(cmd,OUT)
+     except Exception as de:
+      # A collector failure must not suppress other independent projections.
+      print('DIAGNOSTIC_UNAVAILABLE '+type(de).__name__,flush=True)
     from safe_exception_causes import project
     r=subprocess.run(['docker','compose','-p',PROJECT,'-f',str(compose),'logs','--no-color'],capture_output=True,timeout=20)
     (OUT/'exception-causes.json').write_text(json.dumps(project(r.stdout.decode(errors='replace'))))

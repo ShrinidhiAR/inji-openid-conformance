@@ -1,6 +1,6 @@
 """Fail upload on non-allowlisted file or recognizable secret material."""
 import pathlib,re,sys
-ALLOW={'run-provenance.json','plan-verification.json','conformance-results.json','condition-verdicts.json','adapter-outcome.json','completion.json','failure.json','cleanup.json','exception-causes.json','tls-ca.pem','certify.local.test.pem','esignet.local.test.pem','suite.local.test.pem','mdoc-test-iaca.pem','mdoc-test-leaf.pem'}
+ALLOW={'readiness.jsonl','lifecycle.json','proxy-diagnostics.json','run-provenance.json','plan-verification.json','conformance-results.json','condition-verdicts.json','adapter-outcome.json','completion.json','failure.json','cleanup.json','exception-causes.json','tls-ca.pem','certify.local.test.pem','esignet.local.test.pem','suite.local.test.pem','mdoc-test-iaca.pem','mdoc-test-leaf.pem'}
 PATTERNS=[r'-----BEGIN (?:EC |RSA |ENCRYPTED )?PRIVATE KEY-----',r'gh[pousr]_[A-Za-z0-9]{20,}',r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+',r'"(?:d|k|p|q|dp|dq|qi|oth)"\s*:\s*"[A-Za-z0-9_+/=-]{12,}"']
 def audit(root):
  root=pathlib.Path(root);files=list(root.rglob('*'))
