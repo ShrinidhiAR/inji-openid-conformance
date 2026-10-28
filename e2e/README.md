@@ -116,6 +116,12 @@ container serves that name and rewrites the RFC 8615 well-known location
 (`/.well-known/openid-credential-issuer`) onto Certify's servlet path, which
 is how the real suite resolves issuer metadata.
 
+Historical stage4 attribution correction (2026-10-28): its classic browser bridge
+constructs callbacks with code/state only and omits the configured `iss` that the
+pinned eSignet UI adds from OAuth-details `configs.issuer`. A missing-iss suite
+failure through that bridge is not evidence of an eSignet product defect. Original
+failed results remain failed; no retrospective pass or rerun is implied.
+
 ## Troubleshooting (verified causes, not guesses)
 
 | Symptom | Verified cause | Fix in this branch |

@@ -409,7 +409,7 @@ jobs:
       - name: Install bounded harness dependencies
         run: pip install requests cryptography cbor2 PyJWT pyyaml
       - name: Local preparation tests
-        run: cd smoke/alpha-suite && python3 -m unittest -v test_preparation test_readiness test_transport test_api_contract test_as_evidence test_fetch_diagnostics
+        run: cd smoke/alpha-suite && python3 -m unittest -v test_preparation test_readiness test_transport test_api_contract test_as_evidence test_fetch_diagnostics test_stage_diagnostics
       - name: Actual pinned eSignet redirect validator regression
         run: cd smoke/alpha-suite && python3 check_redirect.py
       - name: Validate private compose then run selected official modules and gate
@@ -425,6 +425,9 @@ jobs:
           name: alpha-official-selected-evidence
           path: |
             alpha-suite-out/*.pem
+            alpha-suite-out/metadata-shape.json
+            alpha-suite-out/stage-diagnostics.jsonl
+            alpha-suite-out/browser-evidence.jsonl
             alpha-suite-out/proxy-preflight.json
             alpha-suite-out/metadata-fetch-evidence.jsonl
             alpha-suite-out/as-http-evidence.jsonl

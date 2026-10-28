@@ -45,6 +45,8 @@ def main():
   if b.get('credentialConfigKeyId')!='DrivingLicenseCredential':raise ValueError('configuration readback failure')
   md=json_object(s.get(CERTIFY+'/v1/certify/.well-known/openid-credential-issuer',timeout=20))
   if md.get('credential_issuer')!=CERTIFY or md.get('authorization_servers')!=[AS] or md.get('nonce_endpoint')!=CERTIFY+'/v1/certify/nonce':raise ValueError('metadata deployment mismatch')
+  from stage_diagnostics import metadata as metadata_diagnostics
+  (OUT/'metadata-shape.json').write_text(json.dumps(metadata_diagnostics(md)))
   stage='root_discovery_preflight'
   root_response=s.get(CERTIFY+'/.well-known/openid-credential-issuer',timeout=20)
   from safe_http_evidence import summarize,Recorder

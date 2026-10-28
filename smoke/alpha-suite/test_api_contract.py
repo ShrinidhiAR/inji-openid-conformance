@@ -50,14 +50,19 @@ class APIContract(unittest.TestCase):
    self.assertEqual(len(result['certify']),2);self.assertEqual({r['result'] for r in result['certify']},{'FAILED'})
    self.assertNotIn('secret',(out/'condition-verdicts.json').read_text());self.assertNotIn('secret',(out/'conformance-results.json').read_text())
   self.assertEqual(len([c for c in calls if c[0]=='POST' and c[1]=='/api/runner']),2)
- def test_browser_flow_preserves_code_state_only(self):
-  d=Driver('/unused-ca');posted=[];d.es.par_oauth_details=lambda *a:{'transactionId':'fixture','credentialScopes':['sample_vc_mdoc'],'authorizeScopes':[]}
+ def test_browser_flow_mirrors_pinned_ui_configured_issuer(self):
+  d=Driver('/unused-ca');posted=[];d.es.par_oauth_details=lambda *a:{'transactionId':'fixture','credentialScopes':['sample_vc_mdoc'],'authorizeScopes':[],'configs':{'issuer':AS}}
   d.es.authenticate=lambda *a:{};d.es.auth_code=lambda *a:{'redirectUri':CALLBACK,'code':'fake +&','state':'fake &=','nonce':'not-forwarded'}
   target=SUITE+'/test/a/'+ALIAS+'/implicit/'+'A'*20
   def get(url,**kw):
-   self.assertEqual(urllib.parse.parse_qs(urllib.parse.urlsplit(url).query),{'code':['fake +&'],'state':['fake &=']});return Response(None,200,"xhr.open('POST',"+json.dumps(target)+",true)")
+   self.assertEqual(urllib.parse.parse_qs(urllib.parse.urlsplit(url).query),{'code':['fake +&'],'state':['fake &='],'iss':[AS]});return Response(None,200,"xhr.open('POST',"+json.dumps(target)+",true)")
   d.s.get=get;d.s.post=lambda url,**kw:(posted.append((url,kw)) or Response(None,204))
-  d.browser(AS+'/authorize?client_id=fixture&request_uri=fixture')
+  with tempfile.TemporaryDirectory() as evidence_dir:
+   d.es.out=pathlib.Path(evidence_dir)
+   d.browser(AS+'/authorize?client_id=fixture&request_uri=fixture')
   self.assertEqual(posted[0][1]['data'],'');self.assertEqual(posted[0][1]['headers']['Content-Type'],'text/plain')
   with self.assertRaises(ContractError):d.browser(AS+'/authorize?client_id=fixture&client_id=duplicate&request_uri=fixture')
+  for configs in ({},{'issuer':'https://wrong.invalid'}):
+   d.es.par_oauth_details=lambda *a:{'transactionId':'fixture','credentialScopes':['sample_vc_mdoc'],'authorizeScopes':[],'configs':configs}
+   with self.assertRaises(ContractError):d.browser(AS+'/authorize?client_id=fixture&request_uri=fixture')
 if __name__=='__main__':unittest.main()

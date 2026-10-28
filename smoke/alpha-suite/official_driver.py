@@ -8,6 +8,7 @@ from esignet import gen_client_key
 from tls_config import CERTIFY,AS,SUITE
 from outcomes import document,write,safe_conditions
 from fetch_diagnostics import project as fetch_diagnostics
+from stage_diagnostics import project as stage_diagnostics,browser as browser_diagnostics
 from suite_contract import PLAN,PLAN_ROUTE,MODULES,VARIANT,plan_info,created_plan,created_module,wait_state,test_info,implicit_target,require,ContractError
 ALIAS='alpha-official';CALLBACK=SUITE+'/test/a/'+ALIAS+'/callback'
 class Driver:
@@ -34,7 +35,12 @@ class Driver:
   claims=list(dict.fromkeys((d.get('essentialClaims') or [])+(d.get('voluntaryClaims') or [])))
   ac=self.es.auth_code(d['transactionId'],claims,d.get('authorizeScopes') or [])
   if ac.get('redirectUri')!=CALLBACK or not ac.get('code') or ac.get('state') is None:raise ProtocolFailure('unexpected auth response')
-  callback=CALLBACK+'?'+urllib.parse.urlencode({'code':ac['code'],'state':ac['state']})
+  # Pinned eSignet UI Consent.js/ClaimDetails.js takes iss from oauth details configs.
+  configs=d.get('configs')
+  require(isinstance(configs,dict) and configs.get('issuer')==AS,'ui_configured_issuer_contract')
+  callback_query={'code':ac['code'],'state':ac['state'],'iss':configs['issuer']}
+  with (self.es.out/'browser-evidence.jsonl').open('a') as fh:fh.write(json.dumps(browser_diagnostics(d,callback_query,AS))+'\n')
+  callback=CALLBACK+'?'+urllib.parse.urlencode(callback_query)
   r=self.s.get(callback,allow_redirects=False,timeout=30)
   require(r.status_code==200,'callback_status_contract')
   target=implicit_target(r.text,SUITE,ALIAS)
@@ -88,6 +94,8 @@ class Driver:
    with (out/'metadata-fetch-evidence.jsonl').open('a') as fh:
     fh.write(json.dumps({'module':name,'fetch':fetch_diagnostics(raw)})+'\n')
    conditions[name]=safe_conditions([{'source':x.get('src') or x.get('source'),'result':x.get('result')} for x in raw if isinstance(x,dict)])
+   with (out/'stage-diagnostics.jsonl').open('a') as fh:
+    fh.write(json.dumps({'module':name,'events':stage_diagnostics(raw)})+'\n')
    del raw
    print(json.dumps(rows[-1]))
   doc=document(run_id,started,pid,rows,MODULES);write(out/'conformance-results.json',doc)
