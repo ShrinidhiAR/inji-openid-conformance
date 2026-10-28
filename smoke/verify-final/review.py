@@ -78,8 +78,17 @@ def check_request(directory,evidence,run_id,now):
 
 # ---- Local approval source (no GitHub, no token): a private directory on this machine, same validate() as every other source ----
 APPROVAL_NAME='review-approvals/[A-Za-z0-9-]+-[A-Za-z0-9]+\\.json'
+def no_symlink_components(path):
+ """Every component of the absolute path must be a real directory entry; a symlink is tolerated only when root owns it (a system alias such as /tmp -> /private/tmp)."""
+ p=os.path.abspath(path);cur='/'
+ for part in [x for x in p.split('/') if x]:
+  cur=os.path.join(cur,part)
+  try:st=os.lstat(cur)
+  except OSError:raise ReviewError('review_configuration') from None
+  need(not stat.S_ISLNK(st.st_mode) or st.st_uid==0,'review_configuration')
 def private_dir(path):
- """A real directory (never a symlink) owned by this user that nobody else can write to."""
+ """A real directory (never a symlink, no symlink in any parent) owned by this user that nobody else can write to."""
+ need(isinstance(path,(str,os.PathLike)) and os.path.isabs(path),'review_configuration');no_symlink_components(path)
  try:st=os.lstat(path)
  except OSError:raise ReviewError('review_configuration') from None
  need(stat.S_ISDIR(st.st_mode) and not stat.S_ISLNK(st.st_mode) and st.st_uid==os.getuid() and not st.st_mode&0o022,'review_configuration')

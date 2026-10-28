@@ -1,6 +1,6 @@
 """Local review option: private approval directory, second-terminal helper, script wiring. Real validator, mock suite, no network, no GitHub.
 Not runtime evidence: nothing here boots the stack."""
-import asyncio,hashlib,io,json,os,pathlib,subprocess,sys,tempfile,unittest
+import asyncio,hashlib,io,json,os,pathlib,subprocess,sys,tempfile,unittest,unittest.mock
 HERE=pathlib.Path(__file__).resolve().parent;ROOT=HERE.parents[1]
 for p in (ROOT/'smoke/verify-final',ROOT/'scripts',ROOT/'rig-integration',HERE):sys.path.insert(0,str(p))
 import review,review_local,handoffs
@@ -95,6 +95,29 @@ class Helper(unittest.TestCase):
   def clock():t[0]+=50;return t[0]
   self.assertEqual(review_local.show(type('A',(),{'work':str(w),'wait':60})(),clock=clock,sleep=lambda s:None,out=lambda s:None),1)
   w,req,ap,m=setup();self.assertEqual(review_local.show(type('A',(),{'work':str(w),'wait':1})(),clock=lambda:NOW+601,sleep=lambda s:None,out=lambda s:None),1)
+class Parents(unittest.TestCase):
+ def test_symlink_parent_component_rejected_for_every_entry_point(self):
+  w,req,ap,m=setup();real=w/'real';real.mkdir(mode=0o700);os.rename(req,real/'review-request');os.rename(ap,real/'review-approvals')
+  alias=pathlib.Path(tempfile.mkdtemp(dir='/tmp'))/'alias';alias.symlink_to(real)
+  with self.assertRaises(review.ReviewError):review.local_source(alias/'review-approvals')
+  with self.assertRaises(review.ReviewError):review.read_request(str(alias/'review-request'),NOW)
+  for fn in (lambda:review_local.show(type('A',(),{'work':str(alias),'wait':1})(),clock=lambda:NOW,sleep=lambda s:None,out=lambda s:None),lambda:review_local.approve(type('A',(),{'work':str(alias),'png_sha256':sha(PNG)})(),clock=lambda:NOW,out=lambda s:None),lambda:review_local.clean(type('A',(),{'work':str(alias)})(),out=lambda s:None)):
+   with unittest.mock.patch('sys.stderr',io.StringIO()):self.assertEqual(fn(),1)
+  self.assertEqual(os.listdir(real/'review-approvals'),[]);self.assertTrue((real/'review-request').exists())
+ def test_work_outside_tmp_or_loose_or_relative_rejected(self):
+  w,req,ap,m=setup();os.chmod(w,0o777)
+  with unittest.mock.patch('sys.stderr',io.StringIO()):
+   self.assertEqual(review_local.approve(type('A',(),{'work':str(w),'png_sha256':sha(PNG)})(),clock=lambda:NOW,out=lambda s:None),1)
+   os.chmod(w,0o700);self.assertEqual(review_local.approve(type('A',(),{'work':os.path.relpath(w),'png_sha256':sha(PNG)})(),clock=lambda:NOW,out=lambda s:None),0 if os.path.abspath(os.path.relpath(w))==str(w) else 1)
+   home=pathlib.Path(os.path.expanduser('~'))
+   self.assertEqual(review_local.approve(type('A',(),{'work':str(home),'png_sha256':sha(PNG)})(),clock=lambda:NOW,out=lambda s:None),1)
+ def test_clean_removes_only_expected_files_and_refuses_extras(self):
+  w,req,ap,m=setup();(req/'sub').mkdir()
+  with unittest.mock.patch('sys.stderr',io.StringIO()):self.assertEqual(review_local.clean(type('A',(),{'work':str(w)})(),out=lambda s:None),1)
+  self.assertTrue(req.exists());(req/'sub').rmdir();self.assertEqual(review_local.clean(type('A',(),{'work':str(w)})(),out=lambda s:None),0);self.assertFalse(req.exists());self.assertFalse(ap.exists())
+ def test_instructions_say_inspect_before_hash_and_hash_is_not_proof(self):
+  w,req,ap,m=setup();out=[];review_local.show(type('A',(),{'work':str(w),'wait':1})(),clock=lambda:NOW+3,sleep=lambda s:None,out=out.append);t='\n'.join(out)
+  self.assertLess(t.index('OPEN this image'),t.index('sha256sum'));self.assertIn('transaction',t);self.assertIn('not that anyone looked at it',t)
 class Args:pass
 class HandoffConfig(unittest.TestCase):
  def cfg(self,env,run=RUN,w=None):
@@ -137,6 +160,10 @@ class Script(unittest.TestCase):
   i=[n for n,x in enumerate(mine) if 'src=local' in x][0];prep=mine[:i];run=[mine[i]]
   self.assertEqual(len(run),1);self.assertIn('token=unset',run[0]);self.assertIn('window=600',run[0]);self.assertIn('review-request',run[0]);self.assertIn('review-approvals',run[0])
   for x in prep:self.assertIn('src=unset',x);self.assertIn('appr=unset',x);self.assertIn('token=unset',x)
+ def test_loose_or_symlinked_work_refused(self):
+  d=tempfile.mkdtemp(dir='/tmp');real=pathlib.Path(d)/'real';real.mkdir();os.chmod(real,0o777);ln=pathlib.Path(d)/'ln';ln.symlink_to(real)
+  for w in (real,ln):
+   r,l=te.sh('--combined','--review','local','--approve-runtime',env={'CONFORMANCE_WORK':str(w)},work=False);self.assertEqual(r.returncode,2,w);self.assertEqual(te.has(l,'run_combined.py'),[])
  def test_stale_review_dir_refused(self):
   d=tempfile.mkdtemp(dir='/tmp');w=pathlib.Path(d)/'work';(w/'review-approvals').mkdir(parents=True)
   r,l=te.sh('--combined','--review','local','--approve-runtime',env={'CONFORMANCE_WORK':str(w)},work=False);self.assertNotEqual(r.returncode,0);self.assertEqual(te.has(l,'run_combined.py'),[]);self.assertIn('fresh CONFORMANCE_WORK',r.stderr)
