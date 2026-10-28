@@ -69,7 +69,7 @@ def main(args):
   codes={}
   for component,manifest,cp in [('certify',certify,args.certify_classpath),('verify',verify,args.verify_classpath)]:
    stages.append('native_'+component)
-   try:codes[component]=invoke(component,cp,str(pathlib.Path(args.java_home)/'bin/java'),manifest,out/component,s3,timeout=600)
+   try:codes[component]=invoke(component,cp,str(pathlib.Path(args.java_home)/'bin/java'),manifest,out/component,s3,timeout=1560 if os.environ.get('CONFORMANCE_REVIEW_WINDOW') and component=='verify' else 600)
    except Exception:
     codes[component]=2
     (out/(component+'-invoke-error.json')).write_text(json.dumps({'component':component,'category':'native_invocation_failure','raw_error_retained':False}))

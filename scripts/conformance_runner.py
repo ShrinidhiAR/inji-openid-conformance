@@ -57,8 +57,10 @@ class Runner:
      if status in {'FINISHED','INTERRUPTED'}:row.update(status=status,result=info.get('result'));break
      if status=='WAITING':
       check(self.handoff is not None,'handoff_unavailable')
-      try:await asyncio.wait_for(self.handoff(component,mid,self.client),timeout=min(self.timeout,60))
+      began=time.monotonic()
+      try:await asyncio.wait_for(self.handoff(component,mid,self.client),timeout=getattr(self.handoff,'timeout',None) or min(self.timeout,60))
       except Exception as e:raise HarnessError(safe_category(e)) from None
+      deadline+=time.monotonic()-began  # review waiting does not consume the suite module budget
      await asyncio.sleep(0.25)
    except HarnessError as e:row.update(status='HARNESS_ERROR',harness_category=str(e),result=None)
    try:found=safe_conditions(await self.call(self.client.get_test_log,mid))
@@ -94,7 +96,7 @@ async def execute(args):
 
 def main():
  p=argparse.ArgumentParser(description=__doc__);mode=p.add_mutually_exclusive_group(required=True);mode.add_argument('--component',choices=PLANS);mode.add_argument('--combined',action='store_true')
- p.add_argument('--base-url',default='https://suite:8443');p.add_argument('--ca-file');p.add_argument('--output',default='conformance-results.json');p.add_argument('--run-id');p.add_argument('--synthetic-handoffs',action='store_true');p.add_argument('--evidence-dir');p.add_argument('--module-timeout',type=int,default=300);p.add_argument('--module',action='append')
+ p.add_argument('--base-url',default='https://suite:8443');p.add_argument('--ca-file');p.add_argument('--output',default='conformance-results.json');p.add_argument('--run-id');p.add_argument('--synthetic-handoffs',action='store_true');p.add_argument('--review-dir');p.add_argument('--review-window',type=int,default=0);p.add_argument('--evidence-dir');p.add_argument('--module-timeout',type=int,default=300);p.add_argument('--module',action='append')
  for c in PLANS:p.add_argument('--'+c+'-config');p.add_argument('--'+c+'-variants')
  args=p.parse_args()
  sys.modules['conformance_runner']=sys.modules[__name__]

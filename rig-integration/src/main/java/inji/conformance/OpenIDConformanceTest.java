@@ -26,11 +26,12 @@ public final class OpenIDConformanceTest extends ConformanceResultsTest {
   List<String> command=new ArrayList<>();command.add("python3");command.add(json.getString("runner"));
   command.addAll(List.of("--component",component,"--base-url",json.getString("suite_url"),"--ca-file",json.getString("ca_file"),"--"+component+"-config",json.getString("config"),"--"+component+"-variants",json.getString("variants"),"--output",results.toString(),"--run-id",json.getString("run_id")));
   if(json.optBoolean("synthetic_handoffs",false))command.addAll(List.of("--synthetic-handoffs","--evidence-dir",json.getString("evidence_dir")));
+  if(json.has("review_window")){int w=json.getInt("review_window");if(w<=0||w>600||!json.has("review_dir"))throw new IllegalArgumentException("review_invocation");command.addAll(List.of("--review-window",Integer.toString(w),"--review-dir",json.getString("review_dir")));}
   if(json.has("module"))command.addAll(List.of("--module",json.getString("module")));
   Process process=new ProcessBuilder(command).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start();
-  if(!process.waitFor(15,java.util.concurrent.TimeUnit.MINUTES)){process.destroyForcibly();throw new IllegalStateException("runner_timeout");}
+  if(!process.waitFor(json.has("review_window")?25:15,java.util.concurrent.TimeUnit.MINUTES)){process.destroyForcibly();throw new IllegalStateException("runner_timeout");}
   if(process.exitValue()>1 || !Files.exists(results))throw new IllegalStateException("runner_setup_failure");
   var document=new org.json.JSONObject(Files.readString(results));var run=document.getJSONObject("run");
-  if(!json.getString("run_id").equals(run.getString("id")) || Instant.parse(run.getString("started_at")).isAfter(Instant.now().plusSeconds(10)) || Duration.between(Instant.parse(run.getString("started_at")),Instant.now()).toMinutes()>15)throw new IllegalStateException("freshness_failure");
+  if(!json.getString("run_id").equals(run.getString("id")) || Instant.parse(run.getString("started_at")).isAfter(Instant.now().plusSeconds(10)) || Duration.between(Instant.parse(run.getString("started_at")),Instant.now()).toMinutes()>(json.has("review_window")?25:15))throw new IllegalStateException("freshness_failure");
  }
 }
