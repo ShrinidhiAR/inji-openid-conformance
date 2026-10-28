@@ -33,6 +33,8 @@ case "$sel" in both) comps="certify verify";; *) comps="$sel";; esac
 work="${CONFORMANCE_WORK:-$(mktemp -d)}"
 # stage_isolated.py and fallback_cleanup.py only accept paths under the system temp dir; refuse early with a clear reason.
 case "$(realpath -m "$work")" in /tmp/*) ;; *) echo "refusing: CONFORMANCE_WORK must be under /tmp (isolated staging and exact cleanup only accept /tmp paths)" >&2; exit 2;; esac
+# mkdtemp/tempfile in the Python steps follow TMPDIR; fallback cleanup only accepts /tmp.
+case "$(realpath -m "${TMPDIR:-/tmp}")" in /tmp|/tmp/*) ;; *) echo "refusing: TMPDIR must be under /tmp (isolated staging and exact cleanup only accept /tmp paths)" >&2; exit 2;; esac
 mkdir -p "$work"
 cp_arg(){ echo "$work/native-$1-rig/target/classes:$(cat "$work/native-$1-classpath")"; }
 status=0
