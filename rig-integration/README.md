@@ -78,3 +78,5 @@ local_minio.py provenancecheck and tests/minio_native_acceptance.py reproduce it
 Earlier compiled-onlycaveat remains true historically, not currentlocalpath.
 Combined prepare/runtimeentry and boundedproposal now exist; runtimeentryUNRUN.
 See BOUNDED-RUN-PROPOSAL.md. Do not launch from these notes without review.
+
+Local review option: `run-full-stack-conformance.sh --review local` plus `review_local.py show|approve` (second terminal, hash-bound, private 0700 directories, no token). Unit-tested with the real validator only; not run against the stack. See the top-level README.

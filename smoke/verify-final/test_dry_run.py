@@ -1,5 +1,5 @@
 """Fake-suite end-to-end dry run of Runner + Verify adapter + review window. Not live product evidence."""
-import asyncio,importlib.util,json,pathlib,sys,tempfile,unittest,httpx
+import asyncio,hashlib,importlib.util,json,pathlib,sys,tempfile,unittest,httpx
 HERE=pathlib.Path(__file__).resolve().parent;ROOT=HERE.parents[1]
 sys.path.insert(0,str(ROOT/'scripts'));sys.path.insert(0,str(HERE))
 import review,adapter,contract
@@ -28,16 +28,19 @@ class Client:
  async def start_test(self,*a):pass
  async def get_module_info(self,*a):return {'testId':MOD,'testName':'oid4vp-1final-verifier-happy-flow','status':self.suite.state,'result':'REVIEW' if self.suite.state=='FINISHED' else None}
  async def get_test_log(self,*a):return []
-def dry(approver,window=300):
+def dry(approver,window=300,local=False):
  async def execute():
-  suite=Suite();clock=[10_000];ticks=[0];tmp=pathlib.Path(tempfile.mkdtemp());rv=tmp/'review';ev=tmp/'ev'
+  suite=Suite();clock=[10_000];ticks=[0];tmp=pathlib.Path(tempfile.mkdtemp());rv=tmp/'review';ev=tmp/'ev';ap=tmp/'approvals'
+  if local:rv.mkdir(mode=0o700);ap.mkdir(mode=0o700)
   async def heartbeat():
    while True:await asyncio.sleep(0.001);ticks[0]+=1
-  async def sleep(sec):clock[0]+=sec;await asyncio.sleep(0.005)
+  async def sleep(sec):
+   clock[0]+=sec;await asyncio.sleep(0.005)
+   if local and clock[0]>=10_030 and not list(ap.iterdir()):review.write_local_approval(rv,ap,hashlib.sha256(PNG).hexdigest(),clock[0])   # the second-terminal step, with the typed hash
   polls=[0]
   async def source(path):
    polls[0]+=1;return approver(json.loads((rv/'manifest.json').read_text()),polls[0],clock[0])
-  cfg={'dir':rv,'window':window,'run_id':'777','source':source,'clock':lambda:clock[0],'sleep':sleep,'interval':15}
+  cfg={'dir':rv,'window':window,'run_id':'777','source':review.local_source(ap) if local else source,'clock':lambda:clock[0],'sleep':sleep,'interval':15}
   bridge=adapter.Adapter(True,ev,review=cfg);await bridge.http.aclose();bridge.http=httpx.AsyncClient(transport=httpx.MockTransport(suite.respond))
   async def capture(html,module):(ev/(module+'-verify-result.png')).write_bytes(PNG)
   bridge.capture=capture
@@ -51,6 +54,12 @@ def dry(approver,window=300):
  return asyncio.run(execute())
 def ok(m,n,now):return {'schema':1,'run_id':m['run_id'],'test_id':m['test_id'],'png_sha256':m['png_sha256'],'approved_at':m['created_at']+1,'decision':'approve_faithful_view'} if n>=3 else None
 class T(unittest.TestCase):
+ def test_local_private_directory_approval_ends_review_never_passed(self):
+  r,suite,ticks,polls,rv,ev=dry(None,local=True);row=r['rows'][0]
+  self.assertEqual((row['status'],row['result']),('FINISHED','REVIEW'));self.assertFalse(runner.gate(r['rows']));self.assertEqual(len(suite.uploaded),1);review.check_request(rv,ev,'777',10_001)
+ def test_no_approval_never_ends_passed(self):
+  r,suite,ticks,polls,rv,ev=dry(lambda *a:None,window=60)
+  self.assertNotEqual(r['rows'][0]['result'],'PASSED');self.assertEqual(suite.uploaded,[])
  def test_approved_run_ends_review_never_passed_and_loop_stays_responsive(self):
   r,suite,ticks,polls,rv,ev=dry(ok);row=r['rows'][0]
   self.assertEqual((row['status'],row['result']),('FINISHED','REVIEW'));self.assertFalse(runner.gate(r['rows']));self.assertEqual(len(suite.uploaded),1);self.assertEqual(polls,3);self.assertGreater(ticks,5)

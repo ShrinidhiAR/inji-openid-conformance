@@ -39,6 +39,21 @@ export JAVA_HOME=/path/to/jdk21
 ./run-full-stack-conformance.sh --combined          --approve-runtime     # proven hosted via the workflow with review settings; bare local run, see below
 ```
 
+### Local review of the Verify image (option `--review local`; NOT yet run locally)
+Lets a person on the same machine do the review step that CI does with a committed approval file. No GitHub, no token, no automatic approval.
+It needs `CONFORMANCE_WORK` (fresh, under `/tmp`) and a selection that includes Verify. Two terminals, from the repository root:
+```bash
+# terminal 1: runs everything; prints a REVIEW line with the exact terminal 2 command when it is waiting
+export JAVA_HOME=/path/to/jdk21 CONFORMANCE_WORK=/tmp/inji-local-1     # must not exist yet or be empty of review dirs
+./run-full-stack-conformance.sh --combined --approve-runtime --review local
+# terminal 2: after the REVIEW line appears
+python3 rig-integration/review_local.py show --work /tmp/inji-local-1   # prints the image path, run/test ids and seconds left
+sha256sum /tmp/inji-local-1/review-request/*-verify-result.png          # you compute the hash of the image you opened
+python3 rig-integration/review_local.py approve --work /tmp/inji-local-1 --png-sha256 <that hash>
+```
+The approval is written only if the hash you typed equals the image hash, before the 10 minute deadline (`CONFORMANCE_REVIEW_WINDOW`, at most 600 seconds), into a private `0700` directory that refuses symlinks and other users, and it is never overwritten. The Verify module then ends REVIEW (never PASSED); without an approval it ends HARNESS_ERROR as before. The image is a project-rendered view of the Verify v2 result API, not the native Verify UI, and nothing here is certification.
+Status: covered by unit tests with the real validator and a fake suite only. It has not been run against the real stack. The only environment where the full stack has run is GitHub-hosted `ubuntu-latest` (JDK 21, Go 1.26.6, Python 3.12, Docker); local compatibility, memory and run time are not established.
+
 * Work directory: default is a fresh `mktemp -d`. `CONFORMANCE_WORK` may be set but must be under `/tmp`, and `TMPDIR` must also be under `/tmp`
   (staging and exact cleanup only accept `/tmp`); the script refuses otherwise with exit 2. `--output DIR` must not exist yet (default `combined-conformance-out`).
 * `--phase prepare|run|cleanup|audit` splits the steps (needs `CONFORMANCE_WORK`); the default `all` always runs cleanup and audit, even after a failure, and keeps the original exit code.

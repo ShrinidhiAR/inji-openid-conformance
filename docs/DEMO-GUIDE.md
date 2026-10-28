@@ -15,6 +15,7 @@ State as of 2026-10-28. Everything below is taken from recorded hosted-runner ru
 ## Exact command choice
 - Local demo of Certify: `./run-full-stack-conformance.sh --component certify --approve-runtime`.
 - Combined: `./run-full-stack-conformance.sh --combined --approve-runtime`. Locally this gives Certify FAILED plus a deliberate Verify HARNESS_ERROR. The Verify REVIEW result needs the review settings (a review window, a read-only token and a reviewer-committed approval file), so show it from hosted run 40651319058 or dispatch `e2e-full-run.yml` with `native_component=both`, `script_path=all`.
+- Local Verify REVIEW (new, unit-tested only, not run locally): add `--review local` and approve from a second terminal with `rig-integration/review_local.py`; exact steps in the README section "Local review of the Verify image". Until it has been run, show Verify REVIEW from hosted run 40651319058.
 
 ## Not yet shown
 A local bare `--combined` ends with Certify FAILED plus a deliberate Verify HARNESS_ERROR (no review settings), so demo Certify locally and show the hosted run for the Verify REVIEW result.

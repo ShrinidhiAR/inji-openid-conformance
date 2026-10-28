@@ -7,11 +7,12 @@
 #   --approve-runtime                                         required: boots docker, edits hosts, builds MinIO
 #   --phase all|prepare|run|cleanup|audit                      default all; split phases need CONFORMANCE_WORK set
 #   --output DIR                                              default combined-conformance-out
+#   --review local                                            human review of the Verify image from a second terminal (rig-integration/review_local.py); no GitHub; needs CONFORMANCE_WORK
 # Unsupported selections fail closed with exit 2.
 set -euo pipefail
 cd "$(dirname "$0")"
-usage(){ echo "usage: $0 (--combined | --component certify|verify) --approve-runtime [--phase all|prepare|run|cleanup|audit] [--output DIR]" >&2; exit 2; }
-mode=""; sel=""; approve=0; phase=all; out=combined-conformance-out
+usage(){ echo "usage: $0 (--combined | --component certify|verify) --approve-runtime [--phase all|prepare|run|cleanup|audit] [--output DIR] [--review local]" >&2; exit 2; }
+mode=""; sel=""; approve=0; phase=all; out=combined-conformance-out; review=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --combined) [ -z "$mode" ] || usage; mode=1; sel=both;;
@@ -21,6 +22,7 @@ while [ $# -gt 0 ]; do
     --phase) [ $# -ge 2 ] || usage
       case "$2" in all|prepare|run|cleanup|audit) phase="$2";; *) echo "unsupported phase" >&2; exit 2;; esac; shift;;
     --output) [ $# -ge 2 ] || usage; out="$2"; shift;;
+    --review) [ $# -ge 2 ] && [ "$2" = local ] || usage; review=local; shift;;
     *) usage;;
   esac; shift
 done
@@ -30,6 +32,10 @@ if [ "$approve" != 1 ]; then
 fi
 if [ "$phase" != all ] && [ -z "${CONFORMANCE_WORK:-}" ]; then echo "refusing: --phase $phase needs CONFORMANCE_WORK so phases share one work directory" >&2; exit 2; fi
 case "$sel" in both) comps="certify verify";; *) comps="$sel";; esac
+if [ -n "$review" ]; then
+  [ "$sel" != certify ] || { echo "refusing: --review local only applies when Verify is selected" >&2; exit 2; }
+  [ -n "${CONFORMANCE_WORK:-}" ] || { echo "refusing: --review local needs CONFORMANCE_WORK so the second terminal can find the review request" >&2; exit 2; }
+fi
 work="${CONFORMANCE_WORK:-$(mktemp -d)}"
 # stage_isolated.py and fallback_cleanup.py only accept paths under the system temp dir; refuse early with a clear reason.
 case "$(realpath -m "$work")" in /tmp/*) ;; *) echo "refusing: CONFORMANCE_WORK must be under /tmp (isolated staging and exact cleanup only accept /tmp paths)" >&2; exit 2;; esac
@@ -40,7 +46,7 @@ cp_arg(){ echo "$work/native-$1-rig/target/classes:$(cat "$work/native-$1-classp
 status=0
 # Review-window settings and the repository token belong to the run phase only (run_combined pops the token before anything else starts).
 # The prepare phase runs git, Maven, Go, MinIO and its acceptance test, so none of them may inherit these.
-prepare(){ ( unset GITHUB_TOKEN CONFORMANCE_REVIEW_WINDOW CONFORMANCE_REVIEW_DIR; prepare_steps ); }
+prepare(){ ( unset GITHUB_TOKEN CONFORMANCE_REVIEW_WINDOW CONFORMANCE_REVIEW_DIR CONFORMANCE_REVIEW_SOURCE CONFORMANCE_REVIEW_APPROVALS_DIR; prepare_steps ); }
 prepare_steps(){
   : "${JAVA_HOME:?JAVA_HOME (Java 21 or per workflow) required}"
   local c
@@ -60,7 +66,16 @@ run(){
   : "${JAVA_HOME:?JAVA_HOME required}"
   mkdir -p "$work/owned"
   local cps=(); local c; for c in $comps; do cps+=("--$c-classpath" "$(cp_arg "$c")"); done
-  python3 rig-integration/run_combined.py --output "$out" --locator "$work/owned/locator.json" --java-home "$JAVA_HOME" --minio-binary "$work/approved-minio" --minio-provenance "$work/approved-minio.provenance.json" --component "$sel" "${cps[@]}" &
+  local reviewenv=() notoken=()
+  if [ -n "$review" ]; then
+    # Local review: fresh private request and approval directories, no GitHub token; a human approves from a second terminal.
+    [ ! -e "$work/review-request" ] && [ ! -e "$work/review-approvals" ] || { echo "refusing: review directories already exist; use a fresh CONFORMANCE_WORK" >&2; exit 2; }
+    mkdir -m 700 "$work/review-request" "$work/review-approvals"
+    notoken=(-u GITHUB_TOKEN)
+    reviewenv=(CONFORMANCE_REVIEW_SOURCE=local "CONFORMANCE_REVIEW_WINDOW=${CONFORMANCE_REVIEW_WINDOW:-600}" "CONFORMANCE_REVIEW_DIR=$work/review-request" "CONFORMANCE_REVIEW_APPROVALS_DIR=$work/review-approvals")
+    echo "REVIEW: when the Verify result image is ready, run in a SECOND terminal: python3 rig-integration/review_local.py show --work $work" >&2
+  fi
+  env ${notoken[@]+"${notoken[@]}"} ${reviewenv[@]+"${reviewenv[@]}"} python3 rig-integration/run_combined.py --output "$out" --locator "$work/owned/locator.json" --java-home "$JAVA_HOME" --minio-binary "$work/approved-minio" --minio-provenance "$work/approved-minio.provenance.json" --component "$sel" "${cps[@]}" &
   child=$!
   wait "$child" || status=$?
   child=""
