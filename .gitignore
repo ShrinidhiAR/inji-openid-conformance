@@ -19,3 +19,4 @@ apitestrig-bridge/src/logs/
 # Isolated alpha direct local prep/runtime outputs
 smoke/alpha-direct/java-contract/target/
 alpha-direct-out/
+alpha-suite-out/

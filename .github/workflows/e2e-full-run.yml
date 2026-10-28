@@ -14,7 +14,7 @@ on:
         required: false
         default: "full"
         type: choice
-        options: [full, alpha-smoke, alpha-direct]
+        options: [full, alpha-smoke, alpha-direct, alpha-official]
 
 # experimental branch: only the newest push's run matters
 concurrency:
@@ -392,5 +392,46 @@ jobs:
             alpha-direct-out/last-stage.json
             alpha-direct-out/failure.json
             alpha-direct-out/cleanup.json
+          if-no-files-found: error
+          retention-days: 1
+
+  alpha-official-issuer:
+    name: Two official alpha issuer modules and truthful standalone MOSIP report
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'alpha-official'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install bounded harness dependencies
+        run: pip install requests cryptography cbor2 PyJWT pyyaml
+      - name: Local preparation tests
+        run: cd smoke/alpha-suite && python3 -m unittest -v test_preparation
+      - name: Validate private compose then run selected official modules and gate
+        run: python3 smoke/alpha-suite/run_once.py
+      - name: Audit public evidence before upload
+        if: always()
+        id: public-audit
+        run: python3 smoke/alpha-suite/audit_public.py alpha-suite-out
+      - name: Upload public certificates, verdicts and standalone report only
+        if: always() && steps.public-audit.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpha-official-selected-evidence
+          path: |
+            alpha-suite-out/*.pem
+            alpha-suite-out/run-provenance.json
+            alpha-suite-out/plan-verification.json
+            alpha-suite-out/conformance-results.json
+            alpha-suite-out/condition-verdicts.json
+            alpha-suite-out/adapter-outcome.json
+            alpha-suite-out/completion.json
+            alpha-suite-out/failure.json
+            alpha-suite-out/cleanup.json
+            alpha-suite-out/exception-causes.json
+            alpha-suite-out/standalone-report/
           if-no-files-found: error
           retention-days: 1
