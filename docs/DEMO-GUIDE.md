@@ -9,11 +9,15 @@ State as of 2026-10-28. Everything below is taken from recorded hosted-runner ru
 
 ## What a viewer will see (recorded outcomes)
 1. Certify, one command, default path (hosted run 40648649035): the whole lifecycle runs and cleanup is verified. The suite module `oid4vci-1_0-issuer-happy-flow` ends INTERRUPTED/FAILED because the suite check `EnsureHttpStatusCodeIsAnyOf` fails (requirement `OID4VCI-1FINAL-8.3`, the credential endpoint response status check). The root cause in the product or the configuration is not established.
-2. Combined Certify + Verify via the phased workflow (hosted run 40645764342): Certify as above. Verify finishes with verdict REVIEW (revocation list fetch WARNING), which needs a human decision. The review image is a project-rendered view of the Verify v2 result API, not a native Verify UI.
+2. Combined Certify + Verify through the script's single default-all command (hosted run 40651319058, dispatch `native_component=both`, `script_path=all`; the phased workflow, run 40645764342, gave the same outcome): Certify as above, native exit code 1. Verify finishes with verdict REVIEW (revocation list fetch WARNING), which needs a human decision. The review image is a project-rendered view of the Verify v2 result API, not a native Verify UI.
 3. Evidence files: `combined-results.json`, native TestNG XML and Extent HTML, `local-s3-receipt.json`, `cleanup.json`, a project summary page.
 
+## Exact command choice
+- Local demo of Certify: `./run-full-stack-conformance.sh --component certify --approve-runtime`.
+- Combined: `./run-full-stack-conformance.sh --combined --approve-runtime`. Locally this gives Certify FAILED plus a deliberate Verify HARNESS_ERROR. The Verify REVIEW result needs the review settings (a review window, a read-only token and a reviewer-committed approval file), so show it from hosted run 40651319058 or dispatch `e2e-full-run.yml` with `native_component=both`, `script_path=all`.
+
 ## Not yet shown
-The single default-all `--combined` command on a hosted runner. A local bare `--combined` ends with Certify FAILED plus a deliberate Verify HARNESS_ERROR (no review settings), so demo Certify locally and show the hosted run for the Verify REVIEW result.
+A local bare `--combined` ends with Certify FAILED plus a deliberate Verify HARNESS_ERROR (no review settings), so demo Certify locally and show the hosted run for the Verify REVIEW result.
 Verify-only through the one-command script on a hosted runner; full official plans (only selected happy flows are run); any expected-failure baseline (none recorded); a passing Certify module.
 
 ## Suggested demo steps (about 15 minutes of wall time for one component)
