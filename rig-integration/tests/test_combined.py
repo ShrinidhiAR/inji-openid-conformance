@@ -6,7 +6,7 @@ class Tests(unittest.TestCase):
  def test_audit_rejects_secrets_or_unknown(self):
   with tempfile.TemporaryDirectory() as tmp:
    root=pathlib.Path(tmp);file=root/'cleanup.json';file.write_text('{"cleanup_verified":true}');audit_evidence.audit(root)
-   file.write_text('{"cleanup_verified":true,"private":"-----BEGIN PRIVATE KEY-----"}')
+   file.write_text(json.dumps({'cleanup_verified':True,'private':'-----BEGIN '+'PRIVATE KEY-----'}))
    with self.assertRaisesRegex(ValueError,'combined_secret_pattern'):audit_evidence.audit(root)
    file.write_text(json.dumps({'cleanup_verified':True,'client_secret':'sensitive'}))
    with self.assertRaises(ValueError):audit_evidence.audit(root)

@@ -5,8 +5,6 @@ name: e2e-full-run (experimental branch)
 # Nothing here is fixture data; stages either reach the real services or fail.
 
 on:
-  push:
-    branches: [e2e-full-run]
   workflow_dispatch:
     inputs:
       mode:
@@ -14,7 +12,7 @@ on:
         required: false
         default: "full"
         type: choice
-        options: [full, alpha-smoke, alpha-direct, alpha-official]
+        options: [full, alpha-smoke, alpha-direct, alpha-official, native-combined]
 
 # experimental branch: only the newest push's run matters
 concurrency:
@@ -445,5 +443,71 @@ jobs:
             alpha-suite-out/cleanup.json
             alpha-suite-out/exception-causes.json
             alpha-suite-out/standalone-report/
+          if-no-files-found: error
+          retention-days: 1
+
+  native-combined:
+    if: github.ref == 'refs/heads/e2e-full-run' && github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'native-combined'
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.6'
+          cache: false
+      - name: Install harness dependencies
+        run: pip install -r scripts/requirements.txt cryptography cbor2 PyJWT pyyaml boto3
+      - name: Local contract and safety tests, not product verdicts
+        run: |
+          python3 -m unittest discover -s scripts/tests -v
+          python3 -m unittest discover -s smoke/verify-final -p 'test_*.py' -v
+          python3 -m unittest discover -s rig-integration/tests -p 'test_*.py' -v
+          (cd smoke/alpha-suite && python3 -m unittest -v test_preparation test_transport)
+      - name: Fetch exact pinned native source, never change product source
+        run: |
+          git clone --no-checkout https://github.com/inji/inji-certify /tmp/native-certify-upstream
+          git -C /tmp/native-certify-upstream checkout --detach 8fdf71656979a72fa8263766d4dec3cc25127b76
+          git clone --no-checkout https://github.com/inji/inji-verify /tmp/native-verify-upstream
+          git -C /tmp/native-verify-upstream checkout --detach 4c4289026968beb535d3dbdd500947152c43f708
+          python3 rig-integration/stage_isolated.py --component certify --upstream /tmp/native-certify-upstream --destination /tmp/native-certify-rig
+          python3 rig-integration/stage_isolated.py --component verify --upstream /tmp/native-verify-upstream --destination /tmp/native-verify-rig
+      - name: Compile actual native api-test projects
+        run: |
+          for component in certify verify; do
+            mvn -q -f /tmp/native-$component-rig/pom.xml -DskipTests -Dgpg.skip=true -Dmaven.gitcommitid.skip=true compile dependency:build-classpath -Dmdep.outputFile=/tmp/native-$component-classpath
+          done
+      - name: Build exact public MinIO source, no service started
+        run: python3 rig-integration/build_minio.py --output /tmp/approved-minio
+      - name: Native discovery and real local MinIO acceptance, fake HTTP suite only
+        run: |
+          python3 rig-integration/tests/minio_native_acceptance.py --binary /tmp/approved-minio --provenance /tmp/approved-minio.provenance.json --java "$JAVA_HOME/bin/java" --certify-classpath "/tmp/native-certify-rig/target/classes:$(cat /tmp/native-certify-classpath)" --verify-classpath "/tmp/native-verify-rig/target/classes:$(cat /tmp/native-verify-classpath)"
+      - name: One selected native combined integration attempt, real outcomes
+        run: |
+          python3 rig-integration/run_combined.py --output combined-conformance-out --locator "$RUNNER_TEMP/conformance-owned/locator.json" --java-home "$JAVA_HOME" --minio-binary /tmp/approved-minio --minio-provenance /tmp/approved-minio.provenance.json --certify-classpath "/tmp/native-certify-rig/target/classes:$(cat /tmp/native-certify-classpath)" --verify-classpath "/tmp/native-verify-rig/target/classes:$(cat /tmp/native-verify-classpath)"
+      - name: Exact owned fallback cleanup after interruption
+        if: always()
+        run: |
+          if test -f "$RUNNER_TEMP/conformance-owned/locator.json"; then
+            python3 rig-integration/fallback_cleanup.py --locator "$RUNNER_TEMP/conformance-owned/locator.json"
+          fi
+      - name: Audit exact public evidence, no raw Docker or native private logs
+        id: audit
+        if: always()
+        run: |
+          test -d combined-conformance-out
+          python3 rig-integration/audit_evidence.py combined-conformance-out
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.audit.outcome == 'success'
+        with:
+          name: selected-native-combined-public-evidence
+          path: combined-conformance-out/
           if-no-files-found: error
           retention-days: 1
