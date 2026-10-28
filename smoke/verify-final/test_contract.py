@@ -15,6 +15,8 @@ class Tests(unittest.TestCase):
   for result in ({'transactionId':'tx','allChecksSuccessful':True,'credentialResults':[]},{'transactionId':'wrong','credentialResults':[{}]}):
    with self.assertRaises(contract.ContractError):contract.result_projection(result,'tx')
  def test_projection_never_copies_private_material(self):
+  empty={'schemaAndSignatureCheck':{'valid':True},'holderProofCheck':{'valid':True},'expiryCheck':{'valid':True},'statusCheck':[],'allChecksSuccessful':True}
+  r=contract.result_projection({'transactionId':'tx','credentialResults':[empty],'allChecksSuccessful':True},'tx');self.assertEqual(r['checks'][0]['status_checks_returned'],0);self.assertIsNone(r['checks'][0]['status_checks_valid']);self.assertTrue(r['checks'][0]['all_checks_successful'])
   row={'schemaAndSignatureCheck':{'valid':True,'error':{'message':'private'}},'holderProofCheck':{'valid':True},'expiryCheck':{'valid':True},'statusCheck':[{'valid':False,'error':{'message':'private'}}],'allChecksSuccessful':False,'verifiableCredential':'secret-token','claims':{'name':'private'}}
   result=contract.result_projection({'transactionId':'tx','credentialResults':[row],'allChecksSuccessful':False},'tx');self.assertNotIn('private',str(result));self.assertNotIn('secret-token',str(result));self.assertFalse(result['checks'][0]['status_checks_valid']);self.assertFalse(result['all_checks_successful'])
 if __name__=='__main__':unittest.main()

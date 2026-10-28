@@ -6,7 +6,20 @@ class Client:
  async def create_test_from_plan(self,*a):self.calls.append('create');return {'id':'module12345678','name':'metadata'}
  async def start_test(self,*a):self.calls.append('start')
  async def get_module_info(self,*a):self.calls.append('info');return {'testId':'module12345678','testName':'metadata','status':self.status,'result':self.result}
+class LogClient(Client):
+ async def get_test_log(self,*a):return [{'src':'ExtractBearerTokenFromCredentialResponse','result':'FAILURE','msg':'private-token','args':{'x':1}},{'src':'Ok','result':'SUCCESS'},{'src':'bad name!','result':'FAILURE'}]
 class Tests(unittest.TestCase):
+ def test_conditions_allowlisted(self):
+  r=asyncio.run(m.Runner(LogClient()).run('certify',{},{}))['rows'][0];self.assertEqual(r['conditions'],[{'source':'ExtractBearerTokenFromCredentialResponse','result':'FAILURE'}]);self.assertNotIn('private',str(r))
+ def test_log_unavailable_keeps_verdict(self):
+  r=asyncio.run(m.Runner(Client()).run('certify',{},{}))['rows'][0];self.assertTrue(r['conditions_unavailable']);self.assertEqual(r['result'],'FAILED')
+ def test_review_gate_category_preserved_and_other_errors_collapsed(self):
+  class ContractError(ValueError):pass
+  async def gate(*a):raise ContractError('actual_result_evidence_requires_visual_review')
+  async def leak(*a):raise ValueError('private-token')
+  for h,c in ((gate,'actual_result_evidence_requires_visual_review'),(leak,'handoff_incomplete_or_failed')):
+   r=asyncio.run(m.Runner(Client('WAITING',None),handoff=h).run('certify',{},{}))['rows'][0];self.assertEqual(r['harness_category'],c);self.assertFalse(m.gate([r]))
+
  def test_real_verdict_not_error(self):
   c=Client();r=asyncio.run(m.Runner(c).run('certify',{},{}));self.assertEqual(c.calls,['plan','create','start','info']);self.assertEqual(r['rows'][0]['result'],'FAILED');self.assertFalse(m.gate(r['rows']))
  def test_waiting_without_adapter_fail_closed(self):

@@ -36,7 +36,7 @@ def result_projection(result,transaction):
   status=row.get('statusCheck');require(isinstance(status,list),'status_check_shape')
   # Preserve returned status check structures in private processing only. Public output is booleans/counts.
   checked['status_checks_returned']=len(status)
-  checked['status_checks_valid']=bool(status) and all(isinstance(s,dict) and s.get('valid') is True for s in status)
+  checked['status_checks_valid']=(all(isinstance(s,dict) and s.get('valid') is True for s in status) if status else None) # None: no status entries returned; not a check result
   checked['all_checks_successful']=row.get('allChecksSuccessful') is True
   projected.append(checked)
  return {'transaction_matches':True,'credential_count':len(rows),'all_checks_successful':result.get('allChecksSuccessful') is True,'checks':projected,'source':'Verify v2 result API projection'}
