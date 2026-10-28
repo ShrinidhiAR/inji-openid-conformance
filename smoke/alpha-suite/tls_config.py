@@ -32,7 +32,12 @@ def tls(private,public,java_home):
     if r.returncode:raise RuntimeError('TEST CA import failed')
     nginx=[]
     for host,target in zip(NAMES,('certify-app:8090','esignet-gateway:8088','suite-server:8080')):
-        nginx.append('server { listen 8443 ssl; server_name '+host+'; ssl_protocols TLSv1.2 TLSv1.3; ssl_certificate /runtime/'+host+'.pem; ssl_certificate_key /runtime/'+host+'.key; location / { proxy_pass http://'+target+'; proxy_set_header Host $http_host; proxy_set_header X-Forwarded-Proto https; }}')
+        # Restore official alpha Helm ingress metadata exposure, omitted when
+        # bypassing the old stage4 HTTP gateway. No SUT identifier mutation.
+        discovery=''
+        if host==NAMES[0]:
+            discovery='location = /.well-known/openid-credential-issuer { proxy_pass http://certify-app:8090/v1/certify/.well-known/openid-credential-issuer; proxy_set_header Host $http_host; proxy_set_header X-Forwarded-Proto https; } '
+        nginx.append('server { listen 8443 ssl; server_name '+host+'; ssl_protocols TLSv1.2 TLSv1.3; ssl_certificate /runtime/'+host+'.pem; ssl_certificate_key /runtime/'+host+'.key; '+discovery+'location / { proxy_pass http://'+target+'; proxy_set_header Host $http_host; proxy_set_header X-Forwarded-Proto https; }}')
     (private/'tls.conf').write_text('\n'.join(nginx))
     for p in private.iterdir():
         if p.is_file():os.chmod(p,0o600)

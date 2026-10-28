@@ -31,6 +31,8 @@ def main():
   for origin in ('certify','esignet','suite'):
    stage='readiness_'+origin
    wait(s,origin,OUT,cmd,cap=180)
+  stage='proxy_parser';dc('exec','-T','tls-gateway','nginx','-t',timeout=20)
+  (OUT/'proxy-preflight.json').write_text(json.dumps({'nginx_parser_exit':0,'root_metadata_checked':False}))
   stage='stable_readiness_certify';time.sleep(15);wait(s,'certify',OUT,cmd,cap=30)
   stage='key_initialization'
   logs=dc('logs','--no-color','certify-app')
@@ -43,6 +45,13 @@ def main():
   if b.get('credentialConfigKeyId')!='DrivingLicenseCredential':raise ValueError('configuration readback failure')
   md=json_object(s.get(CERTIFY+'/v1/certify/.well-known/openid-credential-issuer',timeout=20))
   if md.get('credential_issuer')!=CERTIFY or md.get('authorization_servers')!=[AS] or md.get('nonce_endpoint')!=CERTIFY+'/v1/certify/nonce':raise ValueError('metadata deployment mismatch')
+  stage='root_discovery_preflight'
+  root_response=s.get(CERTIFY+'/.well-known/openid-credential-issuer',timeout=20)
+  from safe_http_evidence import summarize,Recorder
+  Recorder(OUT/'readiness.jsonl').record(dict(summarize('/.well-known/openid-credential-issuer',root_response.status_code,root_response.headers,root_response.content),origin='certify',route='/.well-known/openid-credential-issuer'))
+  root_md=json_object(root_response)
+  if root_response.status_code!=200 or root_md!=md or root_md.get('credential_endpoint')!=CERTIFY+'/v1/certify/issuance/credential':raise ValueError('root discovery contract mismatch')
+  (OUT/'proxy-preflight.json').write_text(json.dumps({'nginx_parser_exit':0,'root_metadata_checked':True,'root_equals_native':True,'issuer_matches':True,'credential_endpoint_matches':True,'nonce_matches':True,'strict_tls_client':True}))
   stage='synthetic_seed';seed()
   stage='official_modules';driver=Driver(private/'tls-ca.pem',OUT)
   try:driver.run(OUT,run_id,started)

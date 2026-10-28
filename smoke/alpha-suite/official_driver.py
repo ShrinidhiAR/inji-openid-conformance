@@ -7,6 +7,7 @@ from safe_esignet import SafeEsignet
 from esignet import gen_client_key
 from tls_config import CERTIFY,AS,SUITE
 from outcomes import document,write,safe_conditions
+from fetch_diagnostics import project as fetch_diagnostics
 from suite_contract import PLAN,PLAN_ROUTE,MODULES,VARIANT,plan_info,created_plan,created_module,wait_state,test_info,implicit_target,require,ContractError
 ALIAS='alpha-official';CALLBACK=SUITE+'/test/a/'+ALIAS+'/callback'
 class Driver:
@@ -84,6 +85,8 @@ class Driver:
    raw=self.api('GET','/api/log/'+mid).json()
    if not isinstance(raw,list):raise ProtocolFailure('unexpected suite event list')
    # DB API may call source src; only class-name/verdict allowlist retained.
+   with (out/'metadata-fetch-evidence.jsonl').open('a') as fh:
+    fh.write(json.dumps({'module':name,'fetch':fetch_diagnostics(raw)})+'\n')
    conditions[name]=safe_conditions([{'source':x.get('src') or x.get('source'),'result':x.get('result')} for x in raw if isinstance(x,dict)])
    del raw
    print(json.dumps(rows[-1]))

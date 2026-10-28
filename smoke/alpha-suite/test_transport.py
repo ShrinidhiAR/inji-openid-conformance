@@ -8,6 +8,10 @@ class Transport(unittest.TestCase):
   with tempfile.TemporaryDirectory() as p:
    private=pathlib.Path(p)/'private';public=pathlib.Path(p)/'public';private.mkdir(mode=0o700);public.mkdir()
    tls(private,public,java)
+   nginx=(private/'tls.conf').read_text()
+   self.assertIn('location = /.well-known/openid-credential-issuer { proxy_pass http://certify-app:8090/v1/certify/.well-known/openid-credential-issuer;',nginx)
+   self.assertEqual(nginx.count('location = /.well-known/openid-credential-issuer'),1)
+   self.assertIn('server_name suite;',nginx)
    other_private=pathlib.Path(p)/'other-private';other_public=pathlib.Path(p)/'other-public';other_private.mkdir(mode=0o700);other_public.mkdir();tls(other_private,other_public,java)
    ca=x509.load_pem_x509_certificate((public/'tls-ca.pem').read_bytes())
    for host in NAMES:
