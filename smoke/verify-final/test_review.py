@@ -57,8 +57,9 @@ class Flow(unittest.TestCase):
      tx['id']=json.loads(req.content)['transactionId'];return httpx.Response(201,json={'transactionId':tx['id'],'requestId':'req_12345678-abcd-1234-abcd-123456789012','authorizationDetails':{'clientId':contract.CLIENT,'responseUri':contract.RESPONSE,'responseMode':'direct_post','responseType':'vp_token','dcqlQuery':contract.DCQL,'nonce':'n'*20,'responseCodeValidationRequired':False}})
     if p.endswith('/authorize'):return httpx.Response(200,text='ok')
     if '/v2/vp-results/' in p:return httpx.Response(200,json={'transactionId':tx['id'],'allChecksSuccessful':True,'credentialResults':[{'allChecksSuccessful':True,'schemaAndSignatureCheck':{'valid':True},'expiryCheck':{'valid':True},'holderProofCheck':{'valid':True},'statusCheck':[]}]})
-    if p=='/api/log/module12345678' and req.method=='GET':return httpx.Response(200,json=[{'msg':'x'}]+[{'upload':m} for m in marks])
-    if p.startswith('/api/log/module12345678/images/'):uploads.append((p,req.content.decode()));return httpx.Response(200,json={})
+    if p=='/api/info/module12345678':return httpx.Response(200,json={'testId':'module12345678','status':'WAITING'})
+    if p=='/api/log/module12345678' and req.method=='GET':return httpx.Response(200,json=[{'msg':'x'}]+([{'upload':m} for m in marks] if not uploads else []))
+    if p.startswith('/api/log/module12345678/images/'):uploads.append((p,req.content.decode()));return httpx.Response(200,json={'img':req.content.decode()})
     return httpx.Response(500)
    with tempfile.TemporaryDirectory() as tmp:
     rv=pathlib.Path(tmp)/'review'

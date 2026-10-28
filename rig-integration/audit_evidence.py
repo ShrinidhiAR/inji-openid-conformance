@@ -10,6 +10,7 @@ class HtmlGuard(HTMLParser):
   for key,value in attrs:
    if key in {'href','src','action'} and value and (value.startswith(('http:','https:','//','data:')) or 'token=' in value or 'code=' in value):raise ValueError('native_external_or_embedded_resource')
 def structure(file,text):
+ if re.search(r'(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})',text):raise ValueError('github_token_pattern')
  if re.search(r'(?i)(access_token|refresh_token|client_secret|signing_jwk|vp_token|verifiableCredential|credential_issuer_url|s3-user-secret|s3-user-key)\s*[\"=:]',text):raise ValueError('sensitive_report_structure')
  if file.suffix in {'.json','.jsonl'}:
   def inspect(value):

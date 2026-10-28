@@ -4,14 +4,15 @@ All native stdout/stderr discarded because S3Adapter logs test credentials.
 import pathlib,subprocess,tempfile,json,shutil,os,signal,re
 from owned_process import record
 ROOT=pathlib.Path(__file__).resolve().parents[1]
-def invoke(component,classpath,java,invocation,output,s3=None,timeout=600):
+def invoke(component,classpath,java,invocation,output,s3=None,timeout=600,extra_env=None):
  output=pathlib.Path(output);output.mkdir(exist_ok=False)
  with tempfile.TemporaryDirectory(prefix='conformance-native-'+component+'-') as directory:
   root=pathlib.Path(directory);(root/'.conformance-isolated').write_text('synthetic-conformance-only');shutil.copytree(ROOT/'rig-integration/isolated-suite',root/'testNgXmlFiles');manifest=root/'invocation.json';manifest.write_text(json.dumps(invocation));os.chmod(manifest,0o600)
   command=[java,'-cp',classpath,'-Dconformance.component='+component,'-Denv.endpoint='+invocation['env_endpoint'],'-Dconformance.invocation='+str(manifest),'-Dconformance.results='+str(root/'results.json')]
   if s3:command.append('-Dconformance.localS3.properties='+str(s3))
   command.append('inji.conformance.IsolatedRigLauncher')
-  process=subprocess.Popen(command,cwd=root,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+  environment={k:v for k,v in os.environ.items() if k not in ('GITHUB_TOKEN','ACTIONS_RUNTIME_TOKEN','ACTIONS_ID_TOKEN_REQUEST_TOKEN')};environment.update(extra_env or {})
+  process=subprocess.Popen(command,cwd=root,env=environment,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
   record(process)
   try:code=process.wait(timeout=timeout)
   except subprocess.TimeoutExpired:

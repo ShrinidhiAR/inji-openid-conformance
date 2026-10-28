@@ -500,14 +500,18 @@ jobs:
           mkdir -p "$RUNNER_TEMP/conformance-owned"
           rm -f "$RUNNER_TEMP/combined.exit"
           setsid bash -c 'python3 rig-integration/run_combined.py --output combined-conformance-out --locator "$RUNNER_TEMP/conformance-owned/locator.json" --java-home "$JAVA_HOME" --minio-binary /tmp/approved-minio --minio-provenance /tmp/approved-minio.provenance.json --certify-classpath "/tmp/native-certify-rig/target/classes:$(cat /tmp/native-certify-classpath)" --verify-classpath "/tmp/native-verify-rig/target/classes:$(cat /tmp/native-verify-classpath)" > "$RUNNER_TEMP/combined.private.log" 2>&1; echo $? > "$RUNNER_TEMP/combined.exit"' > /dev/null 2>&1 < /dev/null &
+          python3 rig-integration/review_gate.py start --pid "$!" --pid-file "$RUNNER_TEMP/combined.pid" --deadline-file "$RUNNER_TEMP/combined.deadline" --budget 1500
       - name: Wait for the review request or the attempt ending
         id: pending
-        run: python3 rig-integration/review_gate.py wait-pending --dir "$RUNNER_TEMP/review-request" --exit-file "$RUNNER_TEMP/combined.exit" --timeout 1500
-      - name: Refuse to publish anything but the fixed review pair
+        run: python3 rig-integration/review_gate.py wait-pending --dir "$RUNNER_TEMP/review-request" --exit-file "$RUNNER_TEMP/combined.exit" --deadline-file "$RUNNER_TEMP/combined.deadline"
+      - name: Validate the review pair (manifest fields, hashes, image provenance) before publishing
+        id: reviewcheck
         if: steps.pending.outputs.pending == 'true'
-        run: python3 rig-integration/review_gate.py check-dir --dir "$RUNNER_TEMP/review-request"
+        continue-on-error: true
+        run: python3 rig-integration/review_gate.py check-dir --dir "$RUNNER_TEMP/review-request" --evidence-dir combined-conformance-out/verify-evidence
       - name: Publish only the review image and manifest as an early artifact
-        if: steps.pending.outputs.pending == 'true'
+        if: steps.pending.outputs.pending == 'true' && steps.reviewcheck.outcome == 'success'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: review-request-${{ github.run_id }}
@@ -515,7 +519,12 @@ jobs:
           if-no-files-found: error
           retention-days: 1
       - name: Wait for the combined attempt to end, print only known evidence lines
-        run: python3 rig-integration/review_gate.py wait-exit --exit-file "$RUNNER_TEMP/combined.exit" --log "$RUNNER_TEMP/combined.private.log" --timeout 1500
+        id: attempt
+        if: always()
+        run: python3 rig-integration/review_gate.py wait-exit --exit-file "$RUNNER_TEMP/combined.exit" --log "$RUNNER_TEMP/combined.private.log" --deadline-file "$RUNNER_TEMP/combined.deadline"
+      - name: Terminate the owned attempt if it is still running
+        if: always()
+        run: python3 rig-integration/review_gate.py terminate --pid-file "$RUNNER_TEMP/combined.pid" --exit-file "$RUNNER_TEMP/combined.exit"
       - name: Exact owned fallback cleanup after interruption
         if: always()
         run: |
