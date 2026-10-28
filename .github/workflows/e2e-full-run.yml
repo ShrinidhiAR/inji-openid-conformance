@@ -448,6 +448,8 @@ jobs:
 
   native-combined:
     if: github.ref == 'refs/heads/e2e-full-run' && github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'native-combined'
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:
@@ -489,9 +491,31 @@ jobs:
       - name: Native discovery and real local MinIO acceptance, fake HTTP suite only
         run: |
           python3 rig-integration/tests/minio_native_acceptance.py --binary /tmp/approved-minio --provenance /tmp/approved-minio.provenance.json --java "$JAVA_HOME/bin/java" --certify-classpath "/tmp/native-certify-rig/target/classes:$(cat /tmp/native-certify-classpath)" --verify-classpath "/tmp/native-verify-rig/target/classes:$(cat /tmp/native-verify-classpath)"
-      - name: One selected native combined integration attempt, real outcomes
+      - name: Start the one selected combined attempt in the background (private log, live review window)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CONFORMANCE_REVIEW_WINDOW: '480'
+          CONFORMANCE_REVIEW_DIR: ${{ runner.temp }}/review-request
         run: |
-          python3 rig-integration/run_combined.py --output combined-conformance-out --locator "$RUNNER_TEMP/conformance-owned/locator.json" --java-home "$JAVA_HOME" --minio-binary /tmp/approved-minio --minio-provenance /tmp/approved-minio.provenance.json --certify-classpath "/tmp/native-certify-rig/target/classes:$(cat /tmp/native-certify-classpath)" --verify-classpath "/tmp/native-verify-rig/target/classes:$(cat /tmp/native-verify-classpath)"
+          mkdir -p "$RUNNER_TEMP/conformance-owned"
+          rm -f "$RUNNER_TEMP/combined.exit"
+          setsid bash -c 'python3 rig-integration/run_combined.py --output combined-conformance-out --locator "$RUNNER_TEMP/conformance-owned/locator.json" --java-home "$JAVA_HOME" --minio-binary /tmp/approved-minio --minio-provenance /tmp/approved-minio.provenance.json --certify-classpath "/tmp/native-certify-rig/target/classes:$(cat /tmp/native-certify-classpath)" --verify-classpath "/tmp/native-verify-rig/target/classes:$(cat /tmp/native-verify-classpath)" > "$RUNNER_TEMP/combined.private.log" 2>&1; echo $? > "$RUNNER_TEMP/combined.exit"' > /dev/null 2>&1 < /dev/null &
+      - name: Wait for the review request or the attempt ending
+        id: pending
+        run: python3 rig-integration/review_gate.py wait-pending --dir "$RUNNER_TEMP/review-request" --exit-file "$RUNNER_TEMP/combined.exit" --timeout 1500
+      - name: Refuse to publish anything but the fixed review pair
+        if: steps.pending.outputs.pending == 'true'
+        run: python3 rig-integration/review_gate.py check-dir --dir "$RUNNER_TEMP/review-request"
+      - name: Publish only the review image and manifest as an early artifact
+        if: steps.pending.outputs.pending == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-request-${{ github.run_id }}
+          path: ${{ runner.temp }}/review-request/
+          if-no-files-found: error
+          retention-days: 1
+      - name: Wait for the combined attempt to end, print only known evidence lines
+        run: python3 rig-integration/review_gate.py wait-exit --exit-file "$RUNNER_TEMP/combined.exit" --log "$RUNNER_TEMP/combined.private.log" --timeout 1500
       - name: Exact owned fallback cleanup after interruption
         if: always()
         run: |
