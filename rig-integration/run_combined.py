@@ -66,7 +66,7 @@ def main(args):
   from suite_contract import VARIANT
   vf=private/'issuer-variants.json';vf.write_text(json.dumps(VARIANT));os.chmod(vf,0o600)
   verify=json.loads((private/'verify-invocation.json').read_text());run=verify['run_id'].removesuffix('-verify')
-  certify=dict(verify,env_endpoint='https://certify.local.test:8443',component='certify',config=str(cf),variants=str(vf),run_id=run+'-certify',module='oid4vci-1_0-issuer-happy-flow',evidence_dir=str(out/'certify-evidence'))
+  certify={k:v for k,v in dict(verify,env_endpoint='https://certify.local.test:8443',component='certify',config=str(cf),variants=str(vf),run_id=run+'-certify',module='oid4vci-1_0-issuer-happy-flow',evidence_dir=str(out/'certify-evidence')).items() if k not in ('review_window','review_dir')}
   codes={}
   for component,manifest,cp in [('certify',certify,args.certify_classpath),('verify',verify,args.verify_classpath)]:
    stages.append('native_'+component)
