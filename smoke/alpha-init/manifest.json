@@ -25,7 +25,7 @@
     "init-empty-db.sh": "2ed3e304e66c960bd72d4746e74426c06dba6d8bbbd54bfb4b2436ccc2571504",
     "mdl-credential-config.json": "4503ba4d35f77c9387a1ae1ffa21fed83f23be425f22a6a4b9fd944dd434ef88",
     "config/certify-mock-mdl.properties": "13a9e1fd858b509442a0e886677e5af5f7d753af4614d6331ea9a6851585e2f5",
-    "config/certify-default.properties": "c967d5796d060ade672ae5919fadaa20340d86d1f70bea9b6346926b68a4dc6a",
+    "config/certify-default.properties": "d34121069badfc1577245ff91aa6d571048529b921bc8919007173d154fd95b6",
     "db/db.sql": "f95912e53b4e420b51bbe8462f2621d3445161c2461ead0706260a71b25ca5f3",
     "db/role_dbuser.sql": "3cb8d038badeb4fe7672e0be96ea2d7bbd7515a206cbb64eccea2119110193e5",
     "db/grants.sql": "a3b893f493e784d538038fa4a73aaa5c19e29ff72f14c61c887c161135a6f269",
@@ -48,5 +48,12 @@
     "db/ddl/certify-status_list_credential.sql": "2fea0884905ad311706977c07618d22bb2145f80569161479dd8aa1e82500f23",
     "db/ddl/certify-status_list_available_indices.sql": "8da03aadee9de3f2857aa173058599dbd69e3c7a3a87442873e9ae1ec314d9f5",
     "db/dml/certify-key_policy_def.csv": "3768216fd34f94d6426665d9a48bcb5a789aedc4efce17a2756e5ec264ca192c"
+  },
+  "deployment_adjustments": {
+    "ignore-auth-urls.first_pattern": {
+      "from": "**/actuator/**",
+      "to": "/actuator/health",
+      "purpose": "intended public health only, config-adjusted readiness not conformance"
+    }
   }
 }
