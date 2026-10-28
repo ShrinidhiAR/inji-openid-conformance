@@ -42,6 +42,10 @@ export JAVA_HOME=/path/to/jdk21
   (staging and exact cleanup only accept `/tmp`); the script refuses otherwise with exit 2. `--output DIR` must not exist yet (default `combined-conformance-out`).
 * `--phase prepare|run|cleanup|audit` splits the steps (needs `CONFORMANCE_WORK`); the default `all` always runs cleanup and audit, even after a failure, and keeps the original exit code.
 * Verify needs a human review decision (REVIEW verdict). The GitHub workflow `e2e-full-run.yml` (dispatch mode `native-combined`) does this with a short-lived review window; the one-command script alone does not fake it.
+  Without the review settings (`CONFORMANCE_REVIEW_WINDOW`, `CONFORMANCE_REVIEW_DIR`, a read-only `GITHUB_TOKEN`, and a reviewer-committed approval file) a Verify run ends in a deliberate HARNESS_ERROR (`actual_result_evidence_requires_visual_review`), not a verdict.
+  So a bare local `--combined` or `--component verify` gives you the Certify result plus that Verify harness error; the REVIEW verdict was only produced through the workflow. The single default-all `--combined` command has not been run on a hosted runner yet.
+  The script keeps the token and review settings out of the prepare phase (git, Maven, Go, MinIO); only the run phase sees them.
+  The workflow input `script_path` (`phased` default, or `all` for the single default-all command) selects which of the two paths the dispatch uses.
 * Output: `combined-results.json` (selected components, native exit codes, per-module status, failed condition names with known requirement ids), native TestNG/Extent reports,
   `local-s3-receipt.json`, `cleanup.json`, a project summary page. Only audited public files are meant to be shared; the private run log stays private.
 * Exit codes (as implemented in the default `all` phase): the exit code of the run is kept. A failing module exits non-zero (Certify exits 1 today).

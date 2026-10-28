@@ -13,6 +13,7 @@ State as of 2026-10-28. Everything below is taken from recorded hosted-runner ru
 3. Evidence files: `combined-results.json`, native TestNG XML and Extent HTML, `local-s3-receipt.json`, `cleanup.json`, a project summary page.
 
 ## Not yet shown
+The single default-all `--combined` command on a hosted runner. A local bare `--combined` ends with Certify FAILED plus a deliberate Verify HARNESS_ERROR (no review settings), so demo Certify locally and show the hosted run for the Verify REVIEW result.
 Verify-only through the one-command script on a hosted runner; full official plans (only selected happy flows are run); any expected-failure baseline (none recorded); a passing Certify module.
 
 ## Suggested demo steps (about 15 minutes of wall time for one component)
