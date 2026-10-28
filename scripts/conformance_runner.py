@@ -58,7 +58,7 @@ class Runner:
      if status=='WAITING':
       check(self.handoff is not None,'handoff_unavailable')
       began=time.monotonic()
-      try:await asyncio.wait_for(self.handoff(component,mid,self.client),timeout=getattr(self.handoff,'timeout',None) or min(self.timeout,60))
+      try:await asyncio.wait_for(self.handoff(component,mid,self.client),timeout=(getattr(self.handoff,'timeout_for',lambda c:None)(component)) or min(self.timeout,60))
       except Exception as e:raise HarnessError(safe_category(e)) from None
       deadline+=time.monotonic()-began  # review waiting does not consume the suite module budget
      await asyncio.sleep(0.25)
