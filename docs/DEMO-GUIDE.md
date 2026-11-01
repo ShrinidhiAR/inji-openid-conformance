@@ -14,12 +14,15 @@ State as of 2026-10-28. Everything below is taken from recorded hosted-runner ru
 
 ## Exact command choice
 - Local demo of Certify: `./run-full-stack-conformance.sh --component certify --approve-runtime`.
-- Combined: `./run-full-stack-conformance.sh --combined --approve-runtime`. Locally this gives Certify FAILED plus a deliberate Verify HARNESS_ERROR. The Verify REVIEW result needs the review settings (a review window, a read-only token and a reviewer-committed approval file), so show it from hosted run 40651319058 or dispatch `e2e-full-run.yml` with `native_component=both`, `script_path=all`.
+- Combined: `./run-full-stack-conformance.sh --combined --approve-runtime`. Locally this gives Certify FAILED plus a deliberate Verify HARNESS_ERROR; both are recorded in the expected-failure baseline, so this run exits 0 when exactly these two outcomes occur. The Verify REVIEW result needs the review settings (a review window, a read-only token and a reviewer-committed approval file), so show it from hosted run 40651319058 or dispatch `e2e-full-run.yml` with `native_component=both`, `script_path=all`.
 - Local Verify REVIEW (new, unit-tested only, not run locally): add `--review local` and inspect the PNG yourself, then approve from a second terminal with `rig-integration/review_local.py` (a hash match is not proof of viewing); exact steps in the README section "Local review of the Verify image". Until it has been run, show Verify REVIEW from hosted run 40651319058.
+
+## Expected-failure gate
+The recorded baseline `baselines/expected-failures.json` lists the two known outcomes: the Certify `oid4vci-1_0-issuer-happy-flow` failure (the upstream bug, root cause above) and the deliberate local Verify `HARNESS_ERROR` when no review settings are provided. With the baseline present, the run's exit code comes from the gate: green only when the run's failures match the baseline exactly (module and result, plus status when an entry pins it), scoped to the selected components. Anything unexpected, or a listed failure that stops occurring, is red. Verify REVIEW is deliberately not in the baseline: it always asks for a human decision. The gate sees module, status and result - not which condition failed - so on a green run still read the failure rows against the baseline's recorded reason. Delete or rename the file to return to the old behavior (green only when every native rig passes).
 
 ## Not yet shown
 A local bare `--combined` ends with Certify FAILED plus a deliberate Verify HARNESS_ERROR (no review settings), so demo Certify locally and show the hosted run for the Verify REVIEW result.
-Verify-only through the one-command script on a hosted runner; full official plans (only selected happy flows are run); any expected-failure baseline (none recorded); a passing Certify module.
+Verify-only through the one-command script on a hosted runner; full official plans (only selected happy flows are run); an expected-failure baseline exercised on a hosted runner (recorded at `baselines/expected-failures.json`, wired into the local gate); a passing Certify module.
 
 ## Suggested demo steps (about 15 minutes of wall time for one component)
 ```sh
@@ -29,4 +32,4 @@ export JAVA_HOME=/path/to/jdk21     # needs Docker compose v2, sudo, Maven, Go, 
 ./run-full-stack-conformance.sh --component certify --approve-runtime --output demo-out
 echo "exit=$?"; cat demo-out/cleanup.json; python3 rig-integration/audit_evidence.py demo-out
 ```
-Expect exit 1 with a FAILED Certify module today. That is the recorded result, so say so on camera. Show `demo-out/combined-results.json`, the native report under `demo-out/certify/native-report/`, `cleanup.json` with `cleanup_verified: true`, and the audit line. For the hosted proof, open the run URL above. Do not run this on a machine whose `/etc/hosts` you care about without reading the script first.
+Expect exit 0 today: the Certify module still ends INTERRUPTED/FAILED (the recorded upstream bug - the result rows are unchanged), and the run is green only because that exact failure matches the recorded baseline `baselines/expected-failures.json`; `demo-out/expected-failures-verdict.json` shows `matches: true` next to the failure it covers. If anything else fails, or the pinned Certify build is fixed and the failure disappears, the run exits 1 again: the baseline matches exactly or not at all. Say so on camera. Show `demo-out/combined-results.json`, `demo-out/expected-failures-verdict.json`, the native report under `demo-out/certify/native-report/`, `cleanup.json` with `cleanup_verified: true`, and the audit line. For the hosted proof, open the run URL above. Do not run this on a machine whose `/etc/hosts` you care about without reading the script first.

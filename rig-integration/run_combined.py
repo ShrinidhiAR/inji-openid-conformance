@@ -90,8 +90,13 @@ def main(args):
    if f.exists():doc[component]=json.loads(f.read_text()).get(component,[])
    else:doc[component]=[{'module':'selected-happyflow','test_id':'','status':'HARNESS_ERROR','result':None,'harness_category':'native_result_missing'}]
   stages.append('combined_report')
+  bf=pathlib.Path(args.expected_failures).resolve() if args.expected_failures else ROOT/'baselines'/'expected-failures.json'
+  verdict=None
+  if bf.exists():
+   sys.path.insert(0,str(ROOT/'scripts'));from compare_results import gate as baseline_gate
+   verdict=baseline_gate(doc,json.loads(bf.read_text()).get('expected',[]));doc['expected_failures']={'baseline':str(bf),'verdict':verdict};(out/'expected-failures-verdict.json').write_text(json.dumps(verdict,indent=2))
   (out/'combined-results.json').write_text(json.dumps(doc,indent=2));sys.path.insert(0,str(ROOT/'scripts'));from report_summary import render
-  (out/'project-summary.html').write_text(render(doc));code=0 if all(c==0 for c in codes.values()) else 1
+  (out/'project-summary.html').write_text(render(doc));code=(0 if verdict['matches'] else 1) if verdict is not None else (0 if all(c==0 for c in codes.values()) else 1)
  except Exception as exc:
   out.mkdir(exist_ok=True);(out/'failure.json').write_text(json.dumps({'stage':stages[-1] if stages else 'prepare','error_class':type(exc).__name__,'raw_error_retained':False}));code=2
  finally:
@@ -100,4 +105,4 @@ def main(args):
  return code
 if __name__=='__main__':
  import argparse
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',required=True);p.add_argument('--locator',required=True);p.add_argument('--java-home',required=True);group=p.add_mutually_exclusive_group(required=True);group.add_argument('--minio-image');group.add_argument('--minio-binary');p.add_argument('--minio-provenance');p.add_argument('--component',choices=['both','certify','verify'],default='both');p.add_argument('--certify-classpath');p.add_argument('--verify-classpath');a=p.parse_args();signal.signal(signal.SIGTERM,lambda s,f:(_ for _ in ()).throw(SystemExit(143)));sys.exit(main(a))
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',required=True);p.add_argument('--locator',required=True);p.add_argument('--java-home',required=True);group=p.add_mutually_exclusive_group(required=True);group.add_argument('--minio-image');group.add_argument('--minio-binary');p.add_argument('--minio-provenance');p.add_argument('--component',choices=['both','certify','verify'],default='both');p.add_argument('--certify-classpath');p.add_argument('--verify-classpath');p.add_argument('--expected-failures',help='user-owned expected-failures baseline JSON; default baselines/expected-failures.json when present');a=p.parse_args();signal.signal(signal.SIGTERM,lambda s,f:(_ for _ in ()).throw(SystemExit(143)));sys.exit(main(a))

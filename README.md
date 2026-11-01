@@ -18,7 +18,7 @@
 >   FINISHED with verdict **REVIEW** (native exit codes both 1; conditions `ExpectVerifierSuccessfulVerificationPage=REVIEW`, `EnsureVerifierFetchedRevocationList=WARNING`).
 >   REVIEW needs a human decision; the project-rendered PNG is a view of the Verify v2 result API, not a native Verify UI.
 > * **Not run on a hosted runner:** Verify-only through the one-command script; full official plans (only selected happy flows are in scope);
->   any expected-failure baseline (none has been recorded, so none is claimed).
+>   an expected-failure baseline exercised on a hosted runner (the recorded baseline `baselines/expected-failures.json` gates local runs: green only when failures match it exactly).
 > * Nothing here is a certification claim. Failing and REVIEW outcomes are reported as they are; checks are not weakened to turn them green.
 >
 > The "Quick Start" below is the older existing-environment runner (you supply running Certify/Verify). The full-stack commands are in
@@ -554,5 +554,5 @@ All values are placeholders for local testing and are not real credentials:
 
 * The runner polls each test with no overall time limit. A module that waits for a manual step (for example a wallet action in the suite UI) will keep the runner waiting until the step is done in the UI at <http://localhost:8080>.
 * (Applies to the older runner on `main`.) The compose file starts only the conformance suite and MongoDB. Inji Certify and Inji Verify must be started separately.
-* On `main`, the api-testrig bridge is verified on fixture data only. On `e2e-full-run` the per-component native TestNG class, local MinIO upload with readback, and live Certify/Verify happy-flow runs have been executed on hosted runners (see the status block at the top); full official plans and an expected-failure baseline have not.
+* On `main`, the api-testrig bridge is verified on fixture data only. On `e2e-full-run` the per-component native TestNG class, local MinIO upload with readback, and live Certify/Verify happy-flow runs have been executed on hosted runners (see the status block at the top); full official plans have not. An expected-failure baseline is recorded (`baselines/expected-failures.json`) and wired into the run gate: green only when failures match it exactly.
 * The `latest` tag of the suite image is not pinned, so behavior can change when the image is updated.

@@ -1,0 +1,20 @@
+{
+  "owner": "user-authored and user-owned; edit by hand, review in git",
+  "meaning": "a run is green only when its not-green rows match these entries exactly, scoped to the run's selected components; entries that stop occurring are reported, never dropped. The gate sees module, status and result, not which condition failed.",
+  "expected": [
+    {
+      "component": "certify",
+      "module": "oid4vci-1_0-issuer-happy-flow",
+      "status": "INTERRUPTED",
+      "result": "FAILED",
+      "reason": "Known upstream inji-certify bug (pinned commit 8fdf7165): the custom Jackson ObjectMapper in certify-service AppConfig rejects unknown request fields, so the suite's spec-mandated unknown credential-request parameter (OID4VCI 1.0 Final section 8.2) crashes parsing with HTTP 500 and the section 8.3 status check (requirement OID4VCI-1FINAL-8.3) fails. Established 2026-11-01 from local and hosted runtime evidence; upstream issue inji/inji-certify#1156. Recorded locally (demo-out5) and hosted (runs 40648649035, 40651319058)."
+    },
+    {
+      "component": "verify",
+      "module": "selected-happyflow",
+      "status": "HARNESS_ERROR",
+      "result": null,
+      "reason": "Deliberate local combined-run outcome when no review settings are provided: the Verify happy flow needs a human review decision (review window, read-only token, reviewer-committed approval, or --review local). Not a product failure. Hosted runs with the review window reach REVIEW, which is deliberately not baselined - a human decides it each time."
+    }
+  ]
+}
