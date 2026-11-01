@@ -51,4 +51,7 @@ class Handoffs:
     return
    raise HarnessError('handoff_component')
   except HarnessError:raise
-  except Exception:raise HarnessError('synthetic_handoff_failure') from None
+  except Exception as e:
+   from safe_names import CATEGORIES
+   name=str(e)
+   raise HarnessError(name if type(e).__name__=='ContractError' and name in CATEGORIES else 'synthetic_handoff_failure') from None

@@ -11,10 +11,10 @@
     },
     {
       "component": "verify",
-      "module": "selected-happyflow",
+      "module": "oid4vp-1final-verifier-happy-flow",
       "status": "HARNESS_ERROR",
       "result": null,
-      "reason": "Deliberate local combined-run outcome when no review settings are provided: the Verify happy flow needs a human review decision (review window, read-only token, reviewer-committed approval, or --review local). Not a product failure. Hosted runs with the review window reach REVIEW, which is deliberately not baselined - a human decides it each time."
+      "reason": "Deliberate local no-review outcome (observed demo-out14, 2026-11-01): without review settings the Verify happy flow's evidence requires a human look, so the harness stops the module as HARNESS_ERROR (category actual_result_evidence_requires_visual_review). Not a product failure. With --review local and a human approval the module ends FINISHED/REVIEW (observed demo-out11); REVIEW is deliberately not baselined - a human decides it each time. The rig-never-ran fallback row (module selected-happyflow) intentionally does NOT match this entry, so a dead rig stays red."
     }
   ]
 }

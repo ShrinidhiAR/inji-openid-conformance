@@ -35,6 +35,7 @@ case "$sel" in both) comps="certify verify";; *) comps="$sel";; esac
 if [ -n "$review" ]; then
   [ "$sel" != certify ] || { echo "refusing: --review local only applies when Verify is selected" >&2; exit 2; }
   [ -n "${CONFORMANCE_WORK:-}" ] || { echo "refusing: --review local needs CONFORMANCE_WORK so the second terminal can find the review request" >&2; exit 2; }
+  command -v google-chrome >/dev/null 2>&1 || command -v chromium >/dev/null 2>&1 || { echo "refusing: --review local renders the Verify result image with a local Chrome or Chromium (headless screenshot); install one first" >&2; exit 2; }
 fi
 work="${CONFORMANCE_WORK:-$(mktemp -d)}"
 # stage_isolated.py and fallback_cleanup.py only accept paths under the system temp dir; refuse early with a clear reason.
