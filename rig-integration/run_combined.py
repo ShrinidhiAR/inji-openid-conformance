@@ -35,8 +35,8 @@ def main(args):
    r=owned_run(cmd+list(arguments),stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout)
    if r.returncode:raise ValueError('compose_command_failed')
    return r.stdout
-  stages.append('compose_validate');dc('config','--quiet',timeout=30);old=hosts.read_text();owned_run(['sudo','tee','-a',str(hosts)],input=b'\n127.0.0.1 certify.local.test esignet.local.test suite verify.local.test\n',stdout=subprocess.DEVNULL,check=True)
-  dc('up','-d',timeout=300);stages.append('boot_requested')
+  stages.append('compose_validate');dc('config','--quiet',timeout=180);old=hosts.read_text();owned_run(['sudo','tee','-a',str(hosts)],input=b'\n127.0.0.1 certify.local.test esignet.local.test suite verify.local.test\n',stdout=subprocess.DEVNULL,check=True)
+  dc('pull','--quiet',timeout=1800);dc('up','-d',timeout=300);stages.append('boot_requested')
   import requests
   s=requests.Session();s.verify=str(private/'tls-ca.pem');s.trust_env=False
   sys.path.insert(0,str(ROOT/'smoke/alpha-suite'));from readiness import wait
