@@ -151,6 +151,7 @@ inji-openid-conformance/
 │   ├── architecture-full-stack.png           # Full-stack native run diagram (e2e-full-run)
 │   ├── architecture.pptx                     # Editable source, 2 slides: main-era runner, full-stack run
 │   ├── DEMO-GUIDE.md                         # Honest demo/run guide for the branch
+│   ├── CONFORMANCE-GUIDE.md                    # Architecture, API automation, handoffs, certification path, troubleshooting
 │   └── sample-output/                        # Illustrative bridge input/output
 ├── apitestrig-bridge/                        # Java/TestNG bridge into api-testrig reporting (see below)
 │   ├── pom.xml
