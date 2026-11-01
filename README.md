@@ -11,8 +11,8 @@
 > * **Certify only, one command (`./run-full-stack-conformance.sh --component certify --approve-runtime`, default all phases):**
 >   works end to end (stage, compile, MinIO, stack, run, S3 readback, cleanup verified, evidence audit passed).
 >   Result: the suite module `oid4vci-1_0-issuer-happy-flow` ended INTERRUPTED/FAILED. The suite's
->   `EnsureHttpStatusCodeIsAnyOf` check failed (requirement `OID4VCI-1FINAL-8.3`, the credential endpoint response status check). The root cause in the product or the
->   configuration is **not established**. This is a recorded benchmark outcome, not a harness fault.
+>   `EnsureHttpStatusCodeIsAnyOf` check failed (requirement `OID4VCI-1FINAL-8.3`, the credential endpoint response status check). Root cause **established** (2026-11-01, local full-stack run + pinned-source review): the pinned certify build's custom Jackson `ObjectMapper` bean (`certify-service` `AppConfig`) rejects unknown request fields, so the suite's spec-required unknown-parameter probe on the credential request (OID4VCI 1.0 Final section 8.2: the issuer MUST ignore unrecognized parameters) crashes request parsing and the endpoint returns HTTP 500 instead of a credential or a spec-compliant error.
+>   This is an upstream inji-certify bug, not a harness fault; the earlier missing-DPoP-support hypothesis is refuted by the captured runtime log.
 > * **Combined Certify + Verify**, hosted twice: through the phased workflow (run 40645764342) and through the script's single default-all command (run 40651319058, workflow dispatch `native_component=both`, `script_path=all`, no `--phase`).
 >   Both times Certify ended FAILED as above and Verify ended
 >   FINISHED with verdict **REVIEW** (native exit codes both 1; conditions `ExpectVerifierSuccessfulVerificationPage=REVIEW`, `EnsureVerifierFetchedRevocationList=WARNING`).
