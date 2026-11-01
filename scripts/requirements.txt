@@ -1,2 +1,7 @@
 requests>=2.32,<3
 httpx>=0.28,<0.29
+cryptography
+cbor2
+PyJWT
+pyyaml
+boto3
