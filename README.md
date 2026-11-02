@@ -299,35 +299,32 @@ Edit these URLs to match where your Inji Certify / Inji Verify instances run. If
 
 ## API reference (conformance suite endpoints used)
 
-These are the endpoints of the OpenID Conformance Suite that the runner calls. All paths are relative to the base URL (`http://localhost:8080/api`). The runner sends `Content-Type: application/json` and `X-Forwarded-Proto: https` on every request. No authentication is used (local dev profile).
+These are the endpoints of the OpenID Conformance Suite that the pipeline calls. All paths are relative to the suite base URL (`http://localhost:8080/api` for the standalone stack, `https://suite:8443/api` inside the full-stack run). Requests send `Content-Type: application/json` and `X-Forwarded-Proto: https`. No authentication is used (local dev profile).
 
 ### `GET /plan`
-Health check. The runner retries every 3 seconds, for up to 90 seconds, until it gets HTTP 200.
+Lists test plans. The standalone runner also uses it as a health check, retrying every 3 seconds for up to 90 seconds until it gets HTTP 200.
 
 ### `POST /plan?planName={plan}&variant={url-encoded JSON}`
-Creates a test plan.
+Creates a test plan instance.
 
 * Query: `planName` (for example `oid4vci-1_0-issuer-test-plan`); `variant` (URL-encoded JSON object of variants, omitted when empty).
 * Body: the JSON config file contents.
-* Response: JSON containing the plan id (`id` or `_id`) and `modules`, the list of test modules (each an object with `testModule`, or a plain name).
+* Response: JSON containing the plan id (`id` or `_id`) and `modules`, the list of test modules.
 
 ### `POST /runner?test={module}&plan={planId}`
-Starts one test module of a plan.
+Starts one test module of a plan. Response: JSON containing the test (module instance) id.
 
-* Response: JSON containing the test id (`id` or `_id`).
+### `GET /info/{moduleId}`
+Returns the live state of a module instance. Fields the pipeline reads:
 
-### `GET /log/{testId}`
-Returns the state of a running or finished test. The runner reads two fields:
+* `status`: the lifecycle state (`CREATED`, `WAITING`, `FINISHED`, `INTERRUPTED`).
+* `result`: the verdict (`PASSED`, `FAILED`, `WARNING`, `REVIEW`), trusted only once the status is terminal - per the suite's `TestModule.java`, status is the lifecycle and result is the verdict, so the runner waits on status alone.
 
-* `status`: for example `FINISHED`, `REVIEW`.
-* `result`: for example `PASSED`, `FAILED`, `WARNING`.
+### `GET /log/{moduleId}`
+Returns the module's full log entries, each with the condition name, its result and the requirement ids it covers. The pipeline projects these into the per-module result rows; raw logs are never copied into public artifacts.
 
-The runner polls every 3 seconds and stops when `status` reaches a terminal value
-(`FINISHED` or `INTERRUPTED`). It deliberately does not stop on the `result`
-field: per the suite's `TestModule.java`, Status is the lifecycle and Result is
-the verdict (`REVIEW` is a result, not a status), and the suite's own automation
-library (`scripts/conformance.py`) waits on status alone, so a result value is
-only trusted once the module's status is terminal.
+### `GET /runner/{moduleId}` and `GET /runner/{moduleId}/wait-state`
+`GET /runner/{moduleId}` returns the browser-interaction URLs a module is waiting on (used to perform the wallet/login handoffs programmatically). `wait-state` is the server's long-poll variant for state changes; the pipeline falls back to polling `/api/info/{id}` when it is unavailable.
 
 Example (shape only):
 
