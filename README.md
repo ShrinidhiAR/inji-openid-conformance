@@ -1,13 +1,12 @@
 # MOSIP Inji OpenID Conformance Automation
 
-> **Status of branch `e2e-full-run` (2026-10-28). Read this before the older sections below.**
-> `main` holds the original suite runner, the standalone api-testrig XML bridge and fixture-only checks.
-> The full-stack work lives only on `e2e-full-run`. It starts pinned Inji Certify, Inji Verify, eSignet,
+> **Status (2026-11-02). Read this before the older sections below.**
+> The full-stack work (developed on the `e2e-full-run` branch, now merged here) starts pinned Inji Certify, Inji Verify, eSignet,
 > a mock identity service, the OpenID conformance suite and a source-built local MinIO on one disposable
 > stack, runs the **selected happy-flow modules** through a per-component api-testrig TestNG class
 > (native Extent/TestNG reports, uploaded to local MinIO and read back), then cleans up and audits the public evidence.
 >
-> What has actually been run on GitHub-hosted runners (all on `e2e-full-run`):
+> What has actually been run on GitHub-hosted runners:
 > * **Certify only, one command (`./run-full-stack-conformance.sh --component certify --approve-runtime`, default all phases):**
 >   works end to end (stage, compile, MinIO, stack, run, S3 readback, cleanup verified, evidence audit passed).
 >   Result: the suite module `oid4vci-1_0-issuer-happy-flow` ended INTERRUPTED/FAILED. The suite's
@@ -22,16 +21,16 @@
 > * Nothing here is a certification claim. Failing and REVIEW outcomes are reported as they are; checks are not weakened to turn them green.
 >
 > The "Quick Start" below is the older existing-environment runner (you supply running Certify/Verify). The full-stack commands are in
-> [Full-stack run](#full-stack-run-e2e-full-run-branch).
+> [Full-stack run](#full-stack-run).
 
-## Full-stack run (`e2e-full-run` branch)
+## Full-stack run
 
 Dependencies: Linux with Docker (compose v2) and `sudo` (the run edits `/etc/hosts` and restores it), Python 3 with `scripts/requirements.txt`,
 JDK 21, Maven, Go (builds MinIO from a pinned source archive), git, network access to GitHub and the image registries. Use a scratch machine or CI runner.
 The run boots containers, edits the hosts file and builds MinIO, so it refuses to start without `--approve-runtime`.
 
 ```sh
-git clone -b e2e-full-run https://github.com/ShrinidhiAR/inji-openid-conformance.git && cd inji-openid-conformance
+git clone https://github.com/ShrinidhiAR/inji-openid-conformance.git && cd inji-openid-conformance
 pip install -r scripts/requirements.txt
 export JAVA_HOME=/path/to/jdk21
 ./run-full-stack-conformance.sh --component certify --approve-runtime     # proven on a hosted runner
@@ -78,7 +77,7 @@ Status: exercised locally (2026-11-01, WSL Ubuntu 24.04): the Verify module ende
 Automated local execution and CI/CD pipeline integration for MOSIP Inji Certify (OpenID4VCI) and Verify (OpenID4VP) components using the official OpenID Foundation Conformance Suite.
 
 ## Table of Contents
-0. [Full-stack run (e2e-full-run branch)](#full-stack-run-e2e-full-run-branch)
+0. [Full-stack run](#full-stack-run)
 1. [Overview](#overview)
 2. [Architecture and flow](#architecture-and-flow)
 3. [Repository structure](#repository-structure)
@@ -112,7 +111,7 @@ Main-era runner (existing-environment view, branch `main`):
 
 ![Architecture diagram, main-era runner](docs/architecture.png)
 
-Full-stack native run (branch `e2e-full-run`), with the recorded outcomes:
+Full-stack native run, with the recorded outcomes:
 
 ![Architecture diagram, full-stack native run](docs/architecture-full-stack.png)
 
@@ -176,10 +175,10 @@ inji-openid-conformance/
 * Enough memory for several containers: 8 GB RAM minimum, 16 GB comfortable
 * A running Inji Certify and/or Inji Verify instance reachable at the URLs in the config files (see [Configuration](#configuration)). This repository does not start them.
 
-## Quick Start (main-era runner; NOT the `e2e-full-run` full-stack path)
+## Quick Start (older existing-environment runner; NOT the full-stack path)
 
-> Applies to branch `main` only: it needs your own running Certify/Verify and does not boot the stack, MinIO or the native rig.
-> On `e2e-full-run`, use [Full-stack run](#full-stack-run-e2e-full-run-branch) above. The old `--component` runner here has a different interface and is not the verified path.
+> This runner needs your own running Certify/Verify and does not boot the stack, MinIO or the native rig.
+> For the verified path, use [Full-stack run](#full-stack-run) above. This older `--component` runner has a different interface.
 
 1. **Start the Conformance Suite & MongoDB:**
    ```powershell
@@ -522,7 +521,7 @@ All values are placeholders for local testing and are not real credentials:
 
 ## Troubleshooting
 
-### Full-stack run (`e2e-full-run`)
+### Full-stack run
 
 | Symptom | Meaning and next step |
 |---|---|
@@ -554,6 +553,6 @@ All values are placeholders for local testing and are not real credentials:
 ## Known limitations
 
 * The runner polls each test with no overall time limit. A module that waits for a manual step (for example a wallet action in the suite UI) will keep the runner waiting until the step is done in the UI at <http://localhost:8080>.
-* (Applies to the older runner on `main`.) The compose file starts only the conformance suite and MongoDB. Inji Certify and Inji Verify must be started separately.
-* On `main`, the api-testrig bridge is verified on fixture data only. On `e2e-full-run` the per-component native TestNG class, local MinIO upload with readback, and live Certify/Verify happy-flow runs have been executed on hosted runners (see the status block at the top); full official plans have not. An expected-failure baseline is recorded (`baselines/expected-failures.json`) and wired into the run gate: green only when failures match it exactly.
+* (Applies to the older runner.) The compose file starts only the conformance suite and MongoDB. Inji Certify and Inji Verify must be started separately.
+* The standalone api-testrig XML bridge is verified on fixture data only. The per-component native TestNG class, local MinIO upload with readback, and live Certify/Verify happy-flow runs have been executed on hosted runners (see the status block at the top); full official plans have not. An expected-failure baseline is recorded (`baselines/expected-failures.json`) and wired into the run gate: green only when failures match it exactly.
 * The `latest` tag of the suite image is not pinned, so behavior can change when the image is updated.
