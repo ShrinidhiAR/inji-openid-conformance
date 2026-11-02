@@ -1,0 +1,9 @@
+<!-- SYNTHETIC reproduction, single capture - NOT conformance evidence.
+     Mirrors the real thymeleaf-rendered suite implicitCallback page captured
+     in stage 1 (double-quoted JS string literal, '/' escaped as '\/'). -->
+<html><head><script>
+function f() {
+  xhr.open('POST', "http:\/\/127.0.0.1:18125\/test\/a\/inji-vci\/implicit\/xyz123implicit", true);
+  xhr.send(window.location.hash ? window.location.hash.substring(1) : '');
+}
+</script></head><body onload='f()'></body></html>

@@ -1,0 +1,10 @@
+{
+  "image": "registry.gitlab.com/openid/conformance-suite@sha256:03a8e437200966d7f1528305f1944ed34ece5fabeec7eab4e8d70d994b66ba79",
+  "platform": "linux/amd64",
+  "index_digest": "sha256:dcc4bd1fb7e9c00f048a67373fe2bec5ecf9feb45a6b5d55e237e5c30e5312c6",
+  "source_commit_from_image_jar": "23353b36957d6466010de767c812d2c91ed37638",
+  "tag_from_image_jar": "release-v5.3.4",
+  "registry_verified_at": "2026-10-28T09:14:00+05:30",
+  "issuer_plan_sender_constraints_from_image_bytecode": ["mtls", "dpop"],
+  "live_plan_info_checked": false
+}

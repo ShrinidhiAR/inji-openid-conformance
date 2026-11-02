@@ -1,0 +1,42 @@
+# LOCAL PREPARATION ONLY. Not launched. Empty disposable DB, public mock identities.
+services:
+  certify-db:
+    image: postgres:15
+    environment:
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U postgres]
+      interval: 5s
+      retries: 20
+  initialize:
+    image: postgres:15
+    working_dir: /bundle
+    environment:
+      PGHOST: certify-db
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    volumes:
+      - .:/bundle:ro
+    entrypoint: [bash, /bundle/init-empty-db.sh]
+    depends_on:
+      certify-db:
+        condition: service_healthy
+  certify-app:
+    image: injistack/inji-certify-with-plugins:1.0.0-alpha.1
+    user: root
+    environment:
+      container_user: mosip
+      active_profile_env: default,mock-mdl
+      SPRING_CONFIG_NAME: certify
+      SPRING_CONFIG_LOCATION: /home/mosip/config/
+      enable_certify_artifactory: 'false'
+      download_hsm_client: 'false'
+    volumes:
+      - ./config:/home/mosip/config:ro
+    tmpfs:
+      - /home/mosip/CERTIFY_PKCS12
+    ports:
+      - '127.0.0.1:8099:8090'
+    depends_on:
+      initialize:
+        condition: service_completed_successfully

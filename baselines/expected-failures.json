@@ -1,0 +1,20 @@
+{
+  "owner": "user-authored and user-owned; edit by hand, review in git",
+  "meaning": "a run is green only when its not-green rows match these entries exactly, scoped to the run's selected components; entries that stop occurring are reported, never dropped. The gate sees module, status and result, not which condition failed.",
+  "expected": [
+    {
+      "component": "certify",
+      "module": "oid4vci-1_0-issuer-happy-flow",
+      "status": "INTERRUPTED",
+      "result": "FAILED",
+      "reason": "Known upstream inji-certify bug (pinned commit 8fdf7165): the custom Jackson ObjectMapper in certify-service AppConfig rejects unknown request fields, so the suite's spec-mandated unknown credential-request parameter (OID4VCI 1.0 Final section 8.2) crashes parsing with HTTP 500 and the section 8.3 status check (requirement OID4VCI-1FINAL-8.3) fails. Established 2026-11-01 from local and hosted runtime evidence; upstream issue inji/inji-certify#1156. Recorded locally (demo-out5) and hosted (runs 40648649035, 40651319058)."
+    },
+    {
+      "component": "verify",
+      "module": "oid4vp-1final-verifier-happy-flow",
+      "status": "HARNESS_ERROR",
+      "result": null,
+      "reason": "Deliberate local no-review outcome (observed demo-out14, 2026-11-01): without review settings the Verify happy flow's evidence requires a human look, so the harness stops the module as HARNESS_ERROR (category actual_result_evidence_requires_visual_review). Not a product failure. With --review local and a human approval the module ends FINISHED/REVIEW (observed demo-out11); REVIEW is deliberately not baselined - a human decides it each time. The rig-never-ran fallback row (module selected-happyflow) intentionally does NOT match this entry, so a dead rig stays red."
+    }
+  ]
+}

@@ -1,0 +1,678 @@
+{
+  "planName": "oid4vci-1_0-issuer-test-plan",
+  "variants": {
+    "fapi_profile": {
+      "variantInfo": {
+        "description": "The FAPI sub-profile to use. For servers compliant with the Australian Consumer Data Right standards, please pick consumerdataright_au and also select private_key_jwt client authentication. If in doubt select plain_fapi.",
+        "displayName": "FAPI Profile"
+      },
+      "variantValues": {
+        "plain_fapi": {
+          "configurationFields": [
+            "resource.resourceMediaType",
+            "resource.resourceRequestBody",
+            "resource.resourceMethod"
+          ],
+          "hidesConfigurationFields": []
+        },
+        "consumerdataright_au": {
+          "configurationFields": [
+            "resource.cdrVersion",
+            "mtls2.cert",
+            "mtls2.ca",
+            "mtls.cert",
+            "mtls2.key",
+            "mtls.key",
+            "mtls.ca"
+          ],
+          "hidesConfigurationFields": []
+        },
+        "openbanking_brazil": {
+          "configurationFields": [
+            "resource.brazilOrganizationId",
+            "mtls2.ca",
+            "mtls.cert",
+            "directory.keystore",
+            "resource.brazilPixPayment",
+            "resource.consentUrl",
+            "resource.brazilCnpj",
+            "mtls2.cert",
+            "mtls2.key",
+            "resource.brazilCpf",
+            "mtls.key",
+            "resource.brazilPaymentConsent",
+            "client.org_jwks",
+            "consent.productType",
+            "mtls.ca"
+          ],
+          "hidesConfigurationFields": []
+        },
+        "connectid_au": {
+          "configurationFields": [
+            "mtls2.cert",
+            "mtls2.ca",
+            "mtls.cert",
+            "mtls2.key",
+            "mtls.key",
+            "mtls.ca"
+          ],
+          "hidesConfigurationFields": [
+            "resource.resourceUrl",
+            "client2.scope",
+            "client.scope"
+          ]
+        },
+        "cbuae": {
+          "configurationFields": [
+            "mtls2.cert",
+            "mtls2.ca",
+            "mtls.cert",
+            "mtls2.key",
+            "mtls.key",
+            "mtls.ca"
+          ],
+          "hidesConfigurationFields": []
+        },
+        "openbanking_chile": {
+          "configurationFields": [
+            "mtls2.cert",
+            "mtls2.ca",
+            "mtls.cert",
+            "mtls2.key",
+            "mtls.key",
+            "mtls.ca"
+          ],
+          "hidesConfigurationFields": []
+        },
+        "ksa": {
+          "configurationFields": [
+            "mtls2.cert",
+            "mtls2.ca",
+            "mtls.cert",
+            "mtls2.key",
+            "mtls.key",
+            "resource.resourceUrlAccountRequests",
+            "mtls.ca"
+          ],
+          "hidesConfigurationFields": []
+        },
+        "fapi_client_credentials_grant": {
+          "configurationFields": [
+            "resource.resourceMediaType",
+            "resource.resourceRequestBody",
+            "resource.resourceMethod"
+          ],
+          "hidesConfigurationFields": []
+        },
+        "vci": {
+          "configurationFields": [
+            "client_attestation.key_attestation_jwks",
+            "vci.credential_proof_type_hint",
+            "vci.credential_configuration_id",
+            "vci.authorization_server",
+            "vci.credential_issuer_url"
+          ],
+          "hidesConfigurationFields": [
+            "client2.scope",
+            "resource.resourceUrl",
+            "client.scope",
+            "server.discoveryUrl"
+          ]
+        },
+        "vci_haip": {
+          "configurationFields": [
+            "credential.trust_anchor_pem",
+            "client_attestation.key_attestation_jwks",
+            "credential.status_list_trust_anchor_pem",
+            "vci.credential_proof_type_hint",
+            "vci.credential_configuration_id",
+            "vci.authorization_server",
+            "vci.credential_issuer_url"
+          ],
+          "hidesConfigurationFields": [
+            "client2.scope",
+            "resource.resourceUrl",
+            "client.scope",
+            "server.discoveryUrl",
+            "client2.dpop_signing_alg",
+            "client.dpop_signing_alg"
+          ]
+        }
+      }
+    },
+    "credential_format": {
+      "variantInfo": {
+        "description": "The credential format that will be returned to the Wallet.",
+        "displayName": "Credential Format"
+      },
+      "variantValues": {
+        "sd_jwt_vc": {
+          "configurationFields": [],
+          "hidesConfigurationFields": []
+        },
+        "mdoc": {
+          "configurationFields": [
+            "credential.trust_anchor_pem",
+            "credential.vical_url",
+            "credential.vical"
+          ],
+          "hidesConfigurationFields": []
+        }
+      }
+    },
+    "authorization_request_type": {
+      "notApplicableWhen": {
+        "fapi_profile": {
+          "vci_haip": [
+            "rar"
+          ],
+          "consumerdataright_au": [
+            "rar"
+          ]
+        }
+      },
+      "variantInfo": {
+        "description": "The authorization request type to be used.'simple' is the most commonly used. RAR (Rich Authorization Requests) is an alternative to scope authorizations. If in doubt, select 'simple'.",
+        "displayName": "Authorization Request Type"
+      },
+      "variantValues": {
+        "simple": {
+          "configurationFields": [],
+          "hidesConfigurationFields": []
+        },
+        "rar": {
+          "configurationFields": [
+            "resource.richAuthorizationRequest"
+          ],
+          "hidesConfigurationFields": []
+        }
+      }
+    },
+    "client_auth_type": {
+      "notApplicableWhen": {
+        "fapi_profile": {
+          "openbanking_chile": [
+            "client_attestation"
+          ],
+          "fapi_client_credentials_grant": [
+            "client_attestation"
+          ],
+          "openbanking_brazil": [
+            "client_attestation"
+          ],
+          "connectid_au": [
+            "client_attestation"
+          ],
+          "ksa": [
+            "client_attestation"
+          ],
+          "plain_fapi": [
+            "client_attestation"
+          ],
+          "consumerdataright_au": [
+            "client_attestation",
+            "mtls"
+          ],
+          "cbuae": [
+            "client_attestation"
+          ]
+        }
+      },
+      "variantInfo": {
+        "description": "The type of client authentication your software supports. If you support multiple types of client authentication test each one, one at a time.",
+        "displayName": "Client Authentication Type"
+      },
+      "variantValues": {
+        "private_key_jwt": {
+          "configurationFields": [],
+          "hidesConfigurationFields": [
+            "client_attestation.trust_anchor",
+            "client_attestation.issuer"
+          ]
+        },
+        "mtls": {
+          "configurationFields": [
+            "mtls2.cert",
+            "mtls2.ca",
+            "mtls.cert",
+            "mtls2.key",
+            "mtls.key",
+            "mtls.ca"
+          ],
+          "hidesConfigurationFields": [
+            "client_attestation.trust_anchor",
+            "client_attestation.issuer"
+          ]
+        },
+        "client_attestation": {
+          "configurationFields": [
+            "client_attestation.attester_jwks",
+            "client_attestation.issuer"
+          ],
+          "hidesConfigurationFields": [
+            "client2.jwks",
+            "client.jwks"
+          ]
+        }
+      }
+    },
+    "fapi_request_method": {
+      "notApplicableWhen": {
+        "fapi_profile": {
+          "fapi_client_credentials_grant": [
+            "unsigned",
+            "signed_non_repudiation"
+          ],
+          "consumerdataright_au": [
+            "unsigned"
+          ]
+        }
+      },
+      "variantInfo": {
+        "description": "The method to use to pass the request to the authorization server's pushed request object endpoint. If unsure, pick 'unsigned' - the default method in FAPI2 Baseline. Some ecosystems may require the use of FAPI1Advanced compatible signed request objects - in that case, select 'signed non repudiation'.",
+        "displayName": "Request Method"
+      },
+      "variantValues": {
+        "unsigned": {
+          "configurationFields": [],
+          "hidesConfigurationFields": []
+        },
+        "signed_non_repudiation": {
+          "configurationFields": [],
+          "hidesConfigurationFields": []
+        }
+      }
+    },
+    "fapi_response_mode": {
+      "notApplicableWhen": {
+        "fapi_profile": {
+          "fapi_client_credentials_grant": [
+            "plain_response",
+            "jarm"
+          ],
+          "vci_haip": [
+            "plain_response",
+            "jarm"
+          ],
+          "consumerdataright_au": [
+            "plain_response"
+          ],
+          "vci": [
+            "plain_response",
+            "jarm"
+          ]
+        }
+      },
+      "variantInfo": {
+        "description": "The response mode that will be used. 'Plain response' is the most commonly used. JARM (JWT Secured Authorization Response Mode) is an option in the FAPI specifications. If in doubt, select 'plain_response'.",
+        "displayName": "FAPI Response Mode"
+      },
+      "variantValues": {
+        "plain_response": {
+          "configurationFields": [],
+          "hidesConfigurationFields": []
+        },
+        "jarm": {
+          "configurationFields": [],
+          "hidesConfigurationFields": []
+        }
+      }
+    },
+    "grant_management": {
+      "notApplicableWhen": {
+        "fapi_profile": {
+          "openbanking_chile": [
+            "disabled"
+          ],
+          "fapi_client_credentials_grant": [
+            "enabled"
+          ],
+          "openbanking_brazil": [
+            "enabled"
+          ],
+          "connectid_au": [
+            "enabled"
+          ],
+          "vci_haip": [
+            "enabled"
+          ],
+          "ksa": [
+            "enabled"
+          ],
+          "consumerdataright_au": [
+            "enabled"
+          ],
+          "cbuae": [
+            "enabled"
+          ],
+          "vci": [
+            "enabled"
+          ]
+        }
+      },
+      "variantInfo": {
+        "description": "Whether Grant Management (https://openid.net/specs/oauth-v2-grant-management.html) support is required. When enabled, every authorization request includes grant_management_action=create and the token response is validated to contain a grant_id.",
+        "displayName": "Grant Management"
+      },
+      "variantValues": {
+        "disabled": {
+          "configurationFields": [],
+          "hidesConfigurationFields": []
+        },
+        "enabled": {
+          "configurationFields": [],
+          "hidesConfigurationFields": []
+        }
+      }
+    },
+    "openid": {
+      "notApplicableWhen": {
+        "fapi_profile": {
+          "fapi_client_credentials_grant": [
+            "plain_oauth",
+            "openid_connect"
+          ],
+          "vci_haip": [
+            "plain_oauth",
+            "openid_connect"
+          ],
+          "consumerdataright_au": [
+            "plain_oauth"
+          ],
+          "vci": [
+            "plain_oauth",
+            "openid_connect"
+          ]
+        }
+      },
+      "variantInfo": {
+        "description": "If your server supports issuing id_tokens, pick 'openid connect'. Otherwise pick plain_oauth.",
+        "displayName": "Test OpenID"
+      },
+      "variantValues": {
+        "plain_oauth": {
+          "configurationFields": [],
+          "hidesConfigurationFields": []
+        },
+        "openid_connect": {
+          "configurationFields": [],
+          "hidesConfigurationFields": []
+        }
+      }
+    },
+    "sender_constrain": {
+      "notApplicableWhen": {
+        "fapi_profile": {
+          "consumerdataright_au": [
+            "dpop"
+          ]
+        }
+      },
+      "variantInfo": {
+        "description": "The method to use to sender constrain access tokens. FAPI2 allows the use of MTLS or DPoP as proof-of-possession methods, select the one you support. MTLS was the mechanism used in FAPI1. If your software supports both, test both one at a time.",
+        "displayName": "Sender Constraining"
+      },
+      "variantValues": {
+        "mtls": {
+          "configurationFields": [
+            "mtls2.cert",
+            "mtls2.ca",
+            "mtls.cert",
+            "mtls2.key",
+            "mtls.key",
+            "mtls.ca"
+          ],
+          "hidesConfigurationFields": []
+        },
+        "dpop": {
+          "configurationFields": [
+            "client2.dpop_signing_alg",
+            "client.dpop_signing_alg"
+          ],
+          "hidesConfigurationFields": []
+        }
+      }
+    },
+    "vci_authorization_code_flow_variant": {
+      "variantInfo": {
+        "description": "VCI Authorization Code Flow Variant to be used.'wallet_initiated' is the most commonly used. If in doubt, select 'wallet_initiated'.",
+        "displayName": "Authorization Code Flow Variant"
+      },
+      "variantValues": {
+        "wallet_initiated": {
+          "configurationFields": [],
+          "hidesConfigurationFields": [
+            "vci.credential_offer_endpoint"
+          ]
+        },
+        "issuer_initiated": {
+          "configurationFields": [],
+          "hidesConfigurationFields": []
+        }
+      }
+    },
+    "vci_credential_encryption": {
+      "variantInfo": {
+        "description": "Whether credential responses should be encrypted. 'plain' returns credentials unencrypted. 'encrypted' returns credentials as JWE.",
+        "displayName": "Credential Response Encryption"
+      },
+      "variantValues": {
+        "plain": {
+          "configurationFields": [],
+          "hidesConfigurationFields": []
+        },
+        "encrypted": {
+          "configurationFields": [],
+          "hidesConfigurationFields": []
+        }
+      }
+    },
+    "vci_grant_type": {
+      "notApplicableWhen": {
+        "fapi_profile": {
+          "vci_haip": [
+            "pre_authorization_code"
+          ]
+        }
+      },
+      "variantInfo": {
+        "description": "Grant Type to be used.'authorization_code' is the most commonly used. If in doubt, select 'authorization_code'.",
+        "displayName": "Grant Type"
+      },
+      "variantValues": {
+        "authorization_code": {
+          "configurationFields": [],
+          "hidesConfigurationFields": []
+        },
+        "pre_authorization_code": {
+          "configurationFields": [
+            "vci.static_tx_code"
+          ],
+          "hidesConfigurationFields": []
+        }
+      }
+    }
+  },
+  "modules": [
+    {
+      "testModule": "oid4vci-1_0-issuer-metadata-test",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-metadata-test-signed",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-happy-flow",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-happy-flow-additional-requests",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-happy-flow-multiple-clients",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-happy-flow-skip-notification",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-batch-issuance",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-invalid-nonce",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-invalid-jwt-proof-signature",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-invalid-key-attestation-signature",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-invalid-client-attestation-signature",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-invalid-client-attestation-pop-signature",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-client-attestation-exp-in-past",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-client-attestation-no-sub",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-client-attestation-pop-wrong-aud",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-mismatched-client-attestation-pop-key",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-missing-proof",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-unsupported-encryption-algorithm",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-unknown-credential-configuration",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-unknown-credential-identifier",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-on-access-token-in-query",
+      "variant": {},
+      "instances": []
+    }
+  ],
+  "defaults": {
+    "grant_management": "disabled"
+  },
+  "selectedVariantModules": [
+    {
+      "testModule": "oid4vci-1_0-issuer-metadata-test",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-metadata-test-signed",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-happy-flow",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-happy-flow-additional-requests",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-happy-flow-multiple-clients",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-happy-flow-skip-notification",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-batch-issuance",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-invalid-nonce",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-invalid-jwt-proof-signature",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-invalid-key-attestation-signature",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-missing-proof",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-unknown-credential-configuration",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-unknown-credential-identifier",
+      "variant": {},
+      "instances": []
+    },
+    {
+      "testModule": "oid4vci-1_0-issuer-fail-on-access-token-in-query",
+      "variant": {},
+      "instances": []
+    }
+  ]
+}

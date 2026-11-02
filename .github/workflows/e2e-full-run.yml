@@ -1,0 +1,556 @@
+name: e2e-full-run (experimental branch)
+
+# Experimental end-to-end work on the e2e-full-run branch only. This workflow is
+# staged: each stage proves one layer of the real stack before the next is added.
+# Nothing here is fixture data; stages either reach the real services or fail.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "full = normal stages; alpha-smoke = readiness only; alpha-direct = one Bearer issuance only"
+        required: false
+        default: "full"
+        type: choice
+        options: [full, alpha-smoke, alpha-direct, alpha-official, native-combined]
+      native_component:
+        description: "native-combined only: both (default) | certify | verify, selected happy flow(s) on the one owned stack"
+        required: false
+        default: "both"
+        type: choice
+        options: [both, certify, verify]
+      script_path:
+        description: "native-combined only: phased (default, prepare and run as separate script phases) | all (the script's single default-all command, prepare through audit)"
+        required: false
+        default: "phased"
+        type: choice
+        options: [phased, all]
+
+# experimental branch: only the newest push's run matters
+concurrency:
+  group: e2e-full-run-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stage1-suite:
+    name: Stage 1 - conformance suite boots and serves both plans
+    # gated to manual dispatch while the eSignet 1.8.0 swap is validated by
+    # stages 2-3 (evidence-only push runs); re-enable for push once green
+    if: github.event_name == 'workflow_dispatch' && (github.event.inputs.mode == 'full' || github.event.inputs.mode == '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start the OpenID conformance suite
+        run: docker compose -f docker/docker-compose.yml up -d
+
+      - name: Wait for the suite API
+        run: |
+          for i in $(seq 1 100); do
+            if curl -sf -H "X-Forwarded-Proto: https" http://localhost:8080/api/plan > /dev/null 2>&1; then
+              echo "suite is up after $((i*5))s"; exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::suite did not come up"
+          docker compose -f docker/docker-compose.yml logs --tail=200 server
+          exit 1
+
+      - name: List published plans (confirm our two plan names exist)
+        run: |
+          curl -s -H "X-Forwarded-Proto: https" http://localhost:8080/api/plan | python3 -c "
+          import json,sys
+          plans=json.load(sys.stdin)
+          names=[p.get('planName') if isinstance(p,dict) else p for p in plans]
+          print('\n'.join(sorted(names)))
+          for want in ['oid4vci-1_0-issuer-test-plan','oid4vp-1final-verifier-test-plan']:
+              print(('FOUND  ' if want in names else 'MISSING') + ' ' + want)"
+
+      - name: Dump plan info (config fields + variants) for both plans
+        run: |
+          mkdir -p plan-info
+          curl -s -H "X-Forwarded-Proto: https" http://localhost:8080/api/plan/info/oid4vci-1_0-issuer-test-plan > plan-info/oid4vci-issuer.json
+          curl -s -H "X-Forwarded-Proto: https" http://localhost:8080/api/plan/info/oid4vp-1final-verifier-test-plan > plan-info/oid4vp-verifier.json
+          python3 - <<'PY'
+          import json
+          for f in ["plan-info/oid4vci-issuer.json", "plan-info/oid4vp-verifier.json"]:
+              d = json.load(open(f))
+              print("=== ", f)
+              print("modules:", len(d.get("modules", d.get("testModules", []))))
+              print(json.dumps({k: v for k, v in d.items() if k not in ("modules", "testModules")}, indent=1)[:3000])
+          PY
+
+      - name: Upload plan info
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plan-info
+          path: plan-info/
+          if-no-files-found: ignore
+          retention-days: 1
+
+      - name: Suite logs on failure
+        if: failure()
+        run: docker compose -f docker/docker-compose.yml logs --tail=300
+
+  stage2-esignet:
+    name: Stage 2 - local eSignet stack + scripted auth-code flow
+    if: (github.event.inputs.mode == 'full' || github.event.inputs.mode == '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create shared e2e network
+        run: docker network create e2e-net || true
+
+      - name: Start the local eSignet stack
+        run: docker compose -f e2e/compose/esignet/docker-compose.yaml up -d
+
+      - name: Wait for eSignet
+        run: |
+          for i in $(seq 1 90); do
+            if curl -sf http://localhost:8090/v1/esignet/oidc/.well-known/openid-configuration > /dev/null 2>&1; then
+              echo "esignet up after $((i*5))s"; exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::esignet did not come up"
+          docker compose -f e2e/compose/esignet/docker-compose.yaml logs --tail=200
+          exit 1
+
+      - name: Wait for mock-identity-system (it boots slower than eSignet)
+        run: |
+          for i in $(seq 1 90); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8082/v1/mock-identity-system/actuator/health || true)
+            if [ "$code" = "200" ]; then echo "mock-identity up after $((i*5))s"; exit 0; fi
+            sleep 5
+          done
+          echo "::warning::mock-identity actuator did not report UP; continuing with probes anyway"
+          docker compose -f e2e/compose/esignet/docker-compose.yaml logs --tail=100 mock-identity-system
+
+      - name: Install Python dependencies
+        run: pip install requests cryptography
+
+      - name: Seed the mock individual (REST, idempotent)
+        run: python e2e/scripts/seed_mock_identity.py
+
+      - name: Debug mock identity seed + kyc-auth directly
+        run: |
+          echo "== seeded identities =="
+          docker compose -f e2e/compose/esignet/docker-compose.yaml exec -T esignet-db             psql -U postgres -d mosip_mockidentitysystem -c "select individual_id from mockidentitysystem.mock_identity;" || true
+          echo "== direct kyc-auth v2 (password Mosip@123) =="
+          curl -s -X POST "http://localhost:8082/v1/mock-identity-system/v2/kyc-auth/e2e-rp/e2e-client"             -H "Content-Type: application/json"             -d '{"transactionId":"dbg1","individualId":"1774231323","password":"Mosip@123"}' || true
+          echo
+          echo "== direct kyc-auth v2 (pin 545411) =="
+          curl -s -X POST "http://localhost:8082/v1/mock-identity-system/v2/kyc-auth/e2e-rp/e2e-client"             -H "Content-Type: application/json"             -d '{"transactionId":"dbg2","individualId":"1774231323","pin":"545411"}' || true
+          echo
+          echo "== direct kyc-auth v2 (otp 111111) =="
+          curl -s -X POST "http://localhost:8082/v1/mock-identity-system/v2/kyc-auth/e2e-rp/e2e-client"             -H "Content-Type: application/json"             -d '{"transactionId":"dbg3","individualId":"1774231323","otp":"111111"}' || true
+          echo
+
+      - name: Scripted authorization-code flow against local eSignet
+        run: python e2e/scripts/stage2_validate.py
+
+      - name: eSignet logs on failure
+        if: failure()
+        run: docker compose -f e2e/compose/esignet/docker-compose.yaml logs --tail=300
+
+  stage3-certify:
+    name: Stage 3 - local certify (mDL) + eSignet direct issuance
+    if: (github.event.inputs.mode == 'full' || github.event.inputs.mode == '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: []
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate mDL issuer key-cert
+        run: e2e/scripts/gen-mdl-issuer-keycert.sh
+
+      - name: Create shared e2e network
+        run: docker network create e2e-net || true
+
+      - name: Start eSignet and certify stacks
+        run: |
+          docker compose -f e2e/compose/esignet/docker-compose.yaml up -d
+          docker compose -f e2e/compose/certify/docker-compose.yaml up -d
+
+      - name: Wait for eSignet and certify
+        run: |
+          for i in $(seq 1 120); do
+            E=0; C=0
+            curl -sf http://localhost:8090/v1/esignet/oidc/.well-known/openid-configuration > /dev/null 2>&1 && E=1
+            curl -sf http://localhost:8088/v1/certify/.well-known/openid-credential-issuer > /dev/null 2>&1 && C=1
+            if [ "$E" = 1 ] && [ "$C" = 1 ]; then echo "both up after $((i*5))s"; exit 0; fi
+            sleep 5
+          done
+          echo "::error::stack did not come up"
+          docker compose -f e2e/compose/esignet/docker-compose.yaml logs --tail=100
+          docker compose -f e2e/compose/certify/docker-compose.yaml logs --tail=200
+          exit 1
+
+      - name: Install Python dependencies
+        run: pip install requests cryptography cbor2
+
+      - name: Seed the mock individual (REST, idempotent)
+        run: python e2e/scripts/seed_mock_identity.py
+
+      - name: Direct scripted mDL issuance
+        run: python e2e/scripts/stage3_validate.py
+
+      - name: Verify issued mDL (COSE signature + MSO digests)
+        run: python e2e/scripts/verify_mdl.py
+
+      - name: Upload stage 3 mDL evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage3-mdl-evidence
+          path: stage3-evidence/
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Stack logs on failure
+        if: failure()
+        run: |
+          docker compose -f e2e/compose/esignet/docker-compose.yaml logs --tail=150
+          docker compose -f e2e/compose/certify/docker-compose.yaml logs --tail=250
+
+  stage4-suite-vci:
+    name: Stage 4 - real OIDF suite OID4VCI issuer plan vs local certify
+    # gated to manual dispatch: suite runs only when explicitly launched, and
+    # only after the stage3 integrity check (issuance + COSE/MSO verification)
+    # passes in the same workflow run. Driver: classic eSignet 1.8.0 REST +
+    # PAR bridge (esignet_classic.py), no Go /flow/execute API.
+    if: github.event_name == 'workflow_dispatch' && (github.event.inputs.mode == 'full' || github.event.inputs.mode == '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: [stage3-certify]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate mDL issuer key-cert
+        run: e2e/scripts/gen-mdl-issuer-keycert.sh
+
+      - name: Create shared e2e network
+        run: docker network create e2e-net || true
+
+      - name: Start eSignet, certify and suite stacks
+        run: |
+          docker compose -f e2e/compose/esignet/docker-compose.yaml up -d
+          docker compose -f e2e/compose/certify/docker-compose.yaml up -d
+          docker compose -f e2e/compose/suite/docker-compose.yml up -d
+
+      - name: Wait for eSignet, certify and the suite
+        run: |
+          for i in $(seq 1 150); do
+            E=0; C=0; S=0
+            curl -sf http://localhost:8090/.well-known/openid-configuration > /dev/null 2>&1 && E=1
+            curl -sf http://localhost:8088/v1/certify/.well-known/openid-credential-issuer > /dev/null 2>&1 && C=1
+            curl -sf -H "X-Forwarded-Proto: https" http://localhost:8080/api/plan > /dev/null 2>&1 && S=1
+            if [ "$E" = 1 ] && [ "$C" = 1 ] && [ "$S" = 1 ]; then echo "all up after $((i*5))s"; exit 0; fi
+            sleep 5
+          done
+          echo "::error::stack did not come up"
+          docker compose -f e2e/compose/esignet/docker-compose.yaml logs --tail=100
+          docker compose -f e2e/compose/certify/docker-compose.yaml logs --tail=200
+          docker compose -f e2e/compose/suite/docker-compose.yml logs --tail=100 suite-server
+          exit 1
+
+      - name: Install Python dependencies
+        run: pip install requests cryptography
+
+      - name: Seed the mock individual (REST, idempotent)
+        run: python e2e/scripts/seed_mock_identity.py
+
+      - name: Run the OIDF OID4VCI issuer test plan
+        run: python e2e/scripts/stage4_vci_plan.py
+
+      - name: Stack diagnostics (OOM/crash evidence)
+        if: always()
+        run: |
+          docker ps -a --format '{{.Names}} {{.Status}}'
+          free -m
+          for c in $(docker ps -a --format '{{.Names}}'); do
+            oom=$(docker inspect -f '{{.State.OOMKilled}} {{.State.Restarting}} {{.State.ExitCode}}' "$c" 2>/dev/null || true)
+            echo "$c: OOMKilled/Restarting/ExitCode = $oom"
+          done
+          echo "== suite logs tail =="
+          docker compose -f e2e/compose/suite/docker-compose.yml logs --tail=150 suite-server 2>&1 || true
+          echo "== esignet token-endpoint hits =="
+          docker compose -f e2e/compose/esignet/docker-compose.yaml logs esignet-app 2>&1 | grep -i "oauth/token" | tail -10 || true
+
+      - name: Upload per-module results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage4-vci-results
+          path: |
+            /tmp/stage4-vci-results.json
+            /tmp/suite-callback-page.html
+            /tmp/stage4-suite-log-*.json
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Stack logs on failure
+        if: failure()
+        run: |
+          docker compose -f e2e/compose/esignet/docker-compose.yaml logs --tail=150
+          docker compose -f e2e/compose/certify/docker-compose.yaml logs --tail=250
+          docker compose -f e2e/compose/suite/docker-compose.yml logs --tail=200 suite-server
+
+  stage5-verify:
+    name: Stage 5 - local Inji Verify + VP plan discovery
+    # gated with stage4 during the 1.8.0 swap validation
+    if: github.event_name == 'workflow_dispatch' && (github.event.inputs.mode == 'full' || github.event.inputs.mode == '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create shared e2e network
+        run: docker network create e2e-net || true
+
+      - name: Start the Inji Verify stack and the conformance suite
+        run: |
+          docker compose -f e2e/compose/verify/docker-compose.yaml up -d
+          docker compose -f docker/docker-compose.yml up -d
+
+      - name: Wait for Verify and the suite
+        run: |
+          ok=0
+          for i in $(seq 1 90); do
+            v=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8095/v1/verify/did.json || true)
+            c=$(curl -s -o /dev/null -w "%{http_code}" -H "X-Forwarded-Proto: https" http://localhost:8080/api/plan || true)
+            if [ "$v" = "200" ] && [ "$c" = "200" ]; then echo "both up after $((i*5))s"; ok=1; break; fi
+            sleep 5
+          done
+          if [ "$ok" != "1" ]; then
+            echo "::error::verify stack or suite did not come up"
+            docker compose -f e2e/compose/verify/docker-compose.yaml logs --tail=150
+            exit 1
+          fi
+
+      - name: Install Python dependencies
+        run: pip install requests
+
+      - name: VP request + plan discovery
+        run: python e2e/scripts/stage5_discovery.py
+
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose -f e2e/compose/verify/docker-compose.yaml logs --tail=300
+
+  alpha-boot-smoke:
+    name: Boot alpha certify with official fixture keystore, read metadata
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'alpha-smoke'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unit-test strict readiness validators
+        run: python3 smoke/test_validate_readiness.py
+
+      - name: Start isolated full alpha initialization
+        run: |
+          mkdir -p smoke-out
+          docker compose -f smoke/alpha-init/compose.yaml up -d
+
+      - name: Validate stable health, synthetic configuration, metadata and nonce
+        run: python3 smoke/alpha_readiness_run.py
+
+      - name: Safe diagnostics and cleanup
+        if: always()
+        run: |
+          python3 smoke/alpha_diagnostics.py
+          docker compose -f smoke/alpha-init/compose.yaml down -v
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpha-boot-smoke
+          path: smoke-out/
+          if-no-files-found: warn
+          retention-days: 1
+
+  alpha-direct-issuance:
+    name: Alpha Final direct Bearer issuance (not suite conformance)
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'alpha-direct'
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install direct-only dependencies
+        run: pip install requests cryptography cbor2 PyJWT pyyaml
+      - name: Local secret-safe harness tests
+        run: cd smoke/alpha-direct && python3 -m unittest -v test_local
+      - name: Exactly one synthetic direct issuance
+        run: python3 smoke/alpha-direct/run_once.py
+      - name: Upload allowlisted public evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpha-direct-public-evidence
+          path: |
+            alpha-direct-out/test-issuer-anchor.pem
+            alpha-direct-out/issuance-result.json
+            alpha-direct-out/exception-causes.json
+            alpha-direct-out/last-stage.json
+            alpha-direct-out/failure.json
+            alpha-direct-out/cleanup.json
+          if-no-files-found: error
+          retention-days: 1
+
+  alpha-official-issuer:
+    name: Two official alpha issuer modules and truthful standalone MOSIP report
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'alpha-official'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install bounded harness dependencies
+        run: pip install requests cryptography cbor2 PyJWT pyyaml
+      - name: Local preparation tests
+        run: cd smoke/alpha-suite && python3 -m unittest -v test_preparation test_readiness test_transport test_api_contract test_as_evidence test_fetch_diagnostics test_stage_diagnostics
+      - name: Actual pinned eSignet redirect validator regression
+        run: cd smoke/alpha-suite && python3 check_redirect.py
+      - name: Validate private compose then run selected official modules and gate
+        run: python3 smoke/alpha-suite/run_once.py
+      - name: Audit public evidence before upload
+        if: always()
+        id: public-audit
+        run: python3 smoke/alpha-suite/audit_public.py alpha-suite-out
+      - name: Upload public certificates, verdicts and standalone report only
+        if: always() && steps.public-audit.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpha-official-selected-evidence
+          path: |
+            alpha-suite-out/*.pem
+            alpha-suite-out/metadata-shape.json
+            alpha-suite-out/stage-diagnostics.jsonl
+            alpha-suite-out/browser-evidence.jsonl
+            alpha-suite-out/proxy-preflight.json
+            alpha-suite-out/metadata-fetch-evidence.jsonl
+            alpha-suite-out/as-http-evidence.jsonl
+            alpha-suite-out/suite-api-failure.json
+            alpha-suite-out/readiness.jsonl
+            alpha-suite-out/lifecycle.json
+            alpha-suite-out/proxy-diagnostics.json
+            alpha-suite-out/run-provenance.json
+            alpha-suite-out/plan-verification.json
+            alpha-suite-out/conformance-results.json
+            alpha-suite-out/condition-verdicts.json
+            alpha-suite-out/adapter-outcome.json
+            alpha-suite-out/completion.json
+            alpha-suite-out/failure.json
+            alpha-suite-out/cleanup.json
+            alpha-suite-out/exception-causes.json
+            alpha-suite-out/standalone-report/
+          if-no-files-found: error
+          retention-days: 1
+
+  native-combined:
+    if: github.ref == 'refs/heads/e2e-full-run' && github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'native-combined'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.6'
+          cache: false
+      - name: Install harness dependencies
+        run: pip install -r scripts/requirements.txt cryptography cbor2 PyJWT pyyaml boto3
+      - name: Local contract and safety tests, not product verdicts
+        run: |
+          python3 -m unittest discover -s scripts/tests -v
+          python3 -m unittest discover -s smoke/verify-final -p 'test_*.py' -v
+          python3 -m unittest discover -s rig-integration/tests -p 'test_*.py' -v
+          (cd smoke/alpha-suite && python3 -m unittest -v test_preparation test_transport)
+      - name: Prepare through the one-command script (pinned native source, compile, MinIO build and acceptance)
+        if: github.event.inputs.native_component != 'certify' && github.event.inputs.script_path != 'all'
+        env:
+          CONFORMANCE_WORK: /tmp/conformance-work
+          NATIVE_COMPONENT: ${{ github.event.inputs.native_component }}
+        run: |
+          case "${NATIVE_COMPONENT:-both}" in both) sel="--combined";; certify|verify) sel="--component $NATIVE_COMPONENT";; *) echo unsupported selection; exit 2;; esac
+          ./run-full-stack-conformance.sh $sel --approve-runtime --phase prepare
+      - name: Start the one selected attempt in the background through the script (private log, live review window)
+        env:
+          GITHUB_TOKEN: ${{ github.event.inputs.native_component != 'certify' && secrets.GITHUB_TOKEN || '' }}
+          CONFORMANCE_REVIEW_WINDOW: ${{ github.event.inputs.native_component != 'certify' && '480' || '' }}
+          CONFORMANCE_REVIEW_DIR: ${{ runner.temp }}/review-request
+          CONFORMANCE_WORK: /tmp/conformance-work
+          NATIVE_COMPONENT: ${{ github.event.inputs.native_component }}
+          SCRIPT_PATH: ${{ github.event.inputs.script_path }}
+        run: |
+          case "${NATIVE_COMPONENT:-both}" in both) export SEL="--combined";; certify|verify) export SEL="--component $NATIVE_COMPONENT";; *) echo unsupported selection; exit 2;; esac
+          case "${SCRIPT_PATH:-phased}" in phased|all) ;; *) echo unsupported script path; exit 2;; esac
+          rm -f "$RUNNER_TEMP/combined.exit"
+          # Certify-only runs the script's default all path (prepare, run, cleanup, audit in one command); otherwise prepare ran above.
+          # Single default-all command when Certify-only or when script_path=all; otherwise prepare ran above and only the run phase starts here.
+          if [ "${NATIVE_COMPONENT:-both}" = certify ] || [ "${SCRIPT_PATH:-phased}" = all ]; then export PH=""; else export PH="--phase run"; fi
+          # Default-all also spends about 5-6 minutes on prepare inside the attempt, so a review-capable attempt gets a longer budget.
+          if [ "${NATIVE_COMPONENT:-both}" != certify ] && [ "${SCRIPT_PATH:-phased}" = all ]; then BUDGET=2100; else BUDGET=1500; fi
+          setsid bash -c './run-full-stack-conformance.sh $SEL --approve-runtime $PH > "$RUNNER_TEMP/combined.private.log" 2>&1; echo $? > "$RUNNER_TEMP/combined.exit"' > /dev/null 2>&1 < /dev/null &
+          python3 rig-integration/review_gate.py start --pid "$!" --pid-file "$RUNNER_TEMP/combined.pid" --deadline-file "$RUNNER_TEMP/combined.deadline" --budget "$BUDGET"
+      - name: Wait for the review request or the attempt ending
+        id: pending
+        run: python3 rig-integration/review_gate.py wait-pending --dir "$RUNNER_TEMP/review-request" --exit-file "$RUNNER_TEMP/combined.exit" --deadline-file "$RUNNER_TEMP/combined.deadline"
+      - name: Validate the review pair (manifest fields, hashes, image provenance) before publishing
+        id: reviewcheck
+        if: steps.pending.outputs.pending == 'true'
+        continue-on-error: true
+        run: python3 rig-integration/review_gate.py check-dir --dir "$RUNNER_TEMP/review-request" --evidence-dir combined-conformance-out/verify-evidence
+      - name: Publish only the review image and manifest as an early artifact
+        if: steps.pending.outputs.pending == 'true' && steps.reviewcheck.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-request-${{ github.run_id }}
+          path: ${{ runner.temp }}/review-request/
+          if-no-files-found: error
+          retention-days: 1
+      - name: Wait for the combined attempt to end, print only known evidence lines
+        id: attempt
+        if: always()
+        run: python3 rig-integration/review_gate.py wait-exit --exit-file "$RUNNER_TEMP/combined.exit" --log "$RUNNER_TEMP/combined.private.log" --deadline-file "$RUNNER_TEMP/combined.deadline"
+      - name: Terminate the owned attempt if it is still running
+        if: always()
+        run: python3 rig-integration/review_gate.py terminate --pid-file "$RUNNER_TEMP/combined.pid" --exit-file "$RUNNER_TEMP/combined.exit"
+      - name: Exact owned fallback cleanup after interruption (script phase)
+        if: always()
+        env:
+          CONFORMANCE_WORK: /tmp/conformance-work
+        run: ./run-full-stack-conformance.sh --combined --approve-runtime --phase cleanup
+      - name: Audit exact public evidence, no raw Docker or native private logs (script phase)
+        id: audit
+        if: always()
+        env:
+          CONFORMANCE_WORK: /tmp/conformance-work
+        run: ./run-full-stack-conformance.sh --combined --approve-runtime --phase audit
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.audit.outcome == 'success'
+        with:
+          name: selected-native-combined-public-evidence
+          path: combined-conformance-out/
+          if-no-files-found: error
+          retention-days: 1

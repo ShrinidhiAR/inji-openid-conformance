@@ -1,0 +1,32 @@
+# Conformance suite stack for stage 4: unlike the root docker/docker-compose.yml
+# (standalone, used by stage 1), this variant attaches the suite server to the
+# shared e2e-net network so the suite can reach inji-certify and eSignet by
+# service name when it fetches issuer metadata, exchanges codes, and calls the
+# credential endpoint. BASE_URL stays localhost: the browser leg of every test
+# is driven by e2e/scripts/stage4_vci_plan.py from the runner host.
+services:
+  suite-mongodb:
+    image: mongo:6.0
+    networks:
+      - e2e-net
+
+  suite-server:
+    image: registry.gitlab.com/openid/conformance-suite:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - MONGODB_HOST=suite-mongodb
+      - BASE_URL=http://localhost:8080
+      - JAVA_EXTRA_ARGS=-Dfintechlabs.devmode=true
+      - OIDC_GOOGLE_CLIENTID=dummy-client-id
+      - OIDC_GOOGLE_SECRET=dummy-secret
+      - OIDC_GITLAB_CLIENTID=dummy-client-id
+      - OIDC_GITLAB_SECRET=dummy-secret
+    depends_on:
+      - suite-mongodb
+    networks:
+      - e2e-net
+
+networks:
+  e2e-net:
+    external: true
